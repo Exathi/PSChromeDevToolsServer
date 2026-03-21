@@ -1,4 +1,6 @@
 # PSChromeDevToolsServer - Powershell Browser Automation
+[![Static Badge](https://img.shields.io/badge/Powershell%20Gallery-0.1.0-blue)](https://www.powershellgallery.com/packages/PSChromeDevToolsServer/)
+
 
 Automate any Chromium browser with Powershell with `--remote-debugging-pipe` and `--remote-debugging-io-pipe`. I still couldn't find any examples in 2026 that made use of these switches with dotnet without tapping into WinApi functions.
 
