@@ -1,39 +1,93 @@
-# Powershell Browser Automation
+# PSChromeDevToolsServer - Powershell Browser Automation
 
-Automate any Chromium browser with Powershell with `--remote-debugging-pipe` and `--remote-debugging-io-pipe`. I still couldn't find any examples in 2026 that made use of these switches with dotnet without tapping into WinApi functions like this amazing repo https://github.com/PerditionC/VBAChromeDevProtocol/
+Automate any Chromium browser with Powershell with `--remote-debugging-pipe` and `--remote-debugging-io-pipe`. I still couldn't find any examples in 2026 that made use of these switches with dotnet without tapping into WinApi functions.
 
-The goal is light browser automation without external dependencies and be a potential step up from VBA. Only a small subset of Cdp commands are implemented.
+This uses only what's available by default in powershell. No external dependencies.
 
-Currently this is all blocking. Events are only processed after each call to `$Browser.SendCommand()` or `$Browser.ProcessAllResponses()`.
+Two goals in making this:
 
-`AnonymousPipeServerStream.Write()` requires a null byte to be sent at the end of the string to signal end of write.
+1. Light browser automation without external dependencies and be a potential step up from VBA. Only a small subset of Cdp commands are currently implemented.
 
-`AnonymousPipeServerStream.Read()` locks the terminal on reading an empty pipe. For a workaround, send a null byte before reading to prevent the terminal from freezing if manually reading from the pipe.`
+2. Use it as a local frontend for powershell without opening ports.
 
 ## Commands
 
-Start-CdpPipeBrowser - Launch browser
+Start-CdpServer - Launch browser and returns `[CdpServer]` object.
 
-Stop-CdpPipeBrowser - Close browser
+Stop-CdpServer - Close browser and dispose pipes, processes, runspace pool.
 
-New-CdpPage - Create new page/tab
+New-CdpPage - Create new page/tab.
 
-Invoke-CdpPageNavigate - Navigate page and waits for page load. (Late loading frames may still be missed.)
+Invoke-CdpPageNavigate - Navigate page and waits for the page to load and the unique javascript context to update for the new page.
 
-Invoke-CdpClickElement - Find element with javascript selector and click element via DOM
+Invoke-CdpInputClickElement - Find element with javascript selector and click element via DOM.
 
-Invoke-CdpSendKeys - Sends keys to browser
+Invoke-CdpInputSendKeys - Sends keys to browser.
+
+ConvertTo-Delegate - Used to convert PSMethods to delegates for Windows Powershell. See `Example Async.ps1`.
+
+## Classes
+
+`Start-CdpServer` returns a `[CdpServer]` object. You will pass this into every function as they make use of `$CdpServer.SendCommand()` to send commands to the browser. Normally you won't need to use the methods in the classes.
+
+``` Powershell
+# Basic information about a tab target.
+[CdpPage]
+
+# Responsible for providing methods to process each event response
+[CdpEventHandler]
+
+# Each method follows Cdp naming without the prefix.
+# Base methods are setup to provide basic tab and session/context handling.
+$CdpEventHandler.DomContentEventFired() = Page.DomContentEventFired
+
+# This is where additional scriptblocks are held for each event to process for each event.
+# Can be added to with `Start-CdpServer -Callbacks @{OnEventName = {}}`
+# Events must be the same as the respective method name preceeded by 'On'
+# Ex - OnDomContentEventFired
+$CdpEventHandler.EventHandlers['OnDomContentEventFired'] = {'do stuff'}
+
+# This is responsible for starting the browser, starting message processing and sending commands to the browser.
+[CdpServer]
+
+# This property holds all variables that are available across runspaces.
+$CdpServer.SharedState
+
+# This method sends the command as json converted into bytes and increments the CommandId.
+$CdpServer.SendCommand()
+
+# These methods are responsible for starting runspaces to read and write to the pipes of the browser.
+# MessageReader is responsible for reading output from the browser.
+# MessageProcessor is responsible for processing the events such as setting the CdpPage with a SessionId.
+# MessageWriter is responsible for writing commands to the browser.
+$CdpServer.StartMessageReader()
+$CdpServer.StartMessageProcessor()
+$CdpServer.StartMessageWriter()
+
+# These classes contain methods to return commands as a hashtable for the respective cdp methods
+# Ex [CdpCommandDom]::describeNode()
+[CdpCommandDom]
+[CdpCommandInput]
+[CdpCommandPage]
+[CdpCommandRuntime]
+[CdpCommandTarget]
+
+```
 
 ## Notes
 
-Pages and frames are by default autoattached. The event `Target.targetCreated` creates a new `[CdpPage]` into `$Browser.Targets` when processed.
+If the terminal closes or pipes lose connection, the browser will close. The browser is tied to the terminal.
+
+`Start-CdpServer -Verbose -Debug` will enable respective stream outputs to the main console.
+
+`AnonymousPipeServerStream.Write()` requires a null byte to be sent at the end of the string to signal end of write.
+
+`AnonymousPipeServerStream.Read()` locks the terminal on reading an empty pipe. This is offloaded to a dedicated runspace.
 
 Some events such as `Target.targetCreated` `Target.attachedToTarget` `Target.detachedFromTarget` `Target.targetInfoChanged` are by default turned on to manage active pages. Only pages are attached. Types such as `service_worker` or `background_page` are excluded by default.
 
-Page events are on by default per tab. Javascript is enabled by default.
+Page events and Javascript are on by default for the first tab.
 
 ## Todo/Considerations
-
-Start the anonymous pipes in another runspace for non blocking reads.
 
 Break up the file into smaller pieces.
