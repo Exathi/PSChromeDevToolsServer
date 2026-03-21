@@ -365,23 +365,6 @@ class CdpEventHandler {
 	hidden [CdpPage]GetPageByTargetId([string]$TargetId) {
 		return $this.SharedState.Targets.Find({ param($Page) $Page.TargetId -eq $TargetId })
 	}
-
-	[Delegate]CreateDelegate([System.Management.Automation.PSMethod]$Method) {
-		return $this.CreateDelegate($Method, $this)
-	}
-
-	[Delegate]CreateDelegate([System.Management.Automation.PSMethod]$Method, $Target) {
-		$reflectionMethod = if ($Target.GetType().Name -eq 'PSCustomObject') {
-			$Target.psobject.GetType().GetMethod($Method.Name)
-		} else {
-			$Target.GetType().GetMethod($Method.Name)
-		}
-		$parameterTypes = [System.Linq.Enumerable]::Select($reflectionMethod.GetParameters(), [func[object, object]] { $args[0].parametertype })
-		$concatMethodTypes = $parameterTypes + $reflectionMethod.ReturnType
-		$delegateType = [System.Linq.Expressions.Expression]::GetDelegateType($concatMethodTypes)
-		$delegate = [delegate]::CreateDelegate($delegateType, $Target, $reflectionMethod.Name)
-		return $delegate
-	}
 }
 
 # [NoRunspaceAffinity()]
@@ -639,7 +622,7 @@ class CdpServer {
 
 		$this.SendPageEnable($this.SharedState.Targets[0].SessionId)
 		$this.SendRuntimeEnable($this.SharedState.Targets[0].SessionId)
-		$this.SendRuntimeAddBinding($this.SharedState.Targets[0].SessionId, 'PowershellServer')
+		# $this.SendRuntimeAddBinding($this.SharedState.Targets[0].SessionId, 'PowershellServer')
 	}
 
 	[object]ShowMessageHistory() {
@@ -653,11 +636,11 @@ class CdpServer {
 		)
 	}
 
-	[Delegate]CreateDelegate([System.Management.Automation.PSMethod]$Method) {
+	hidden [Delegate]CreateDelegate([System.Management.Automation.PSMethod]$Method) {
 		return $this.CreateDelegate($Method, $this)
 	}
 
-	[Delegate]CreateDelegate([System.Management.Automation.PSMethod]$Method, $Target) {
+	hidden [Delegate]CreateDelegate([System.Management.Automation.PSMethod]$Method, $Target) {
 		$reflectionMethod = if ($Target.GetType().Name -eq 'PSCustomObject') {
 			$Target.psobject.GetType().GetMethod($Method.Name)
 		} else {
