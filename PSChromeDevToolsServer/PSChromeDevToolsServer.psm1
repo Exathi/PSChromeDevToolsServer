@@ -829,15 +829,6 @@ class CdpCommandTarget {
 	}
 }
 
-# if ($PSVersionTable.PSVersion -lt 7.4) {
-# 	. "$PSScriptRoot\CdpEventHandlerWindowsPowershell.ps1"
-# } else {
-# 	. "$PSScriptRoot\CdpEventHandlerPowershell.ps1"
-# }
-
-# . "$PSScriptRoot\CdpServer.ps1"
-# . "$PSScriptRoot\Functions.ps1"
-
 function Start-CdpServer {
 	<#
 		.SYNOPSIS
@@ -852,6 +843,9 @@ function Start-CdpServer {
 		Sets the max runspaces the pool can use + 3.
 		Default runspacepool uses 3min and 3max threads for MessageReader, MessageProcessor, MessageWriter
 		A number higher than 0 increases the maximum runspaces for the pool.
+
+		More MessageProcessor can be started with $CdpServer.MessageProcessor()
+		These will be queued forever if the max number of runspaces are exhausted in the pool.
 		.PARAMETER Callbacks
 		A hashtable of scriptblocks to be invoked for specific events. The keys should be the event names without the domain prefix and preceeded by 'On'. For example:
 		@{
