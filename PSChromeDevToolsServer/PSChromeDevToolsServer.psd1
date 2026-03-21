@@ -98,7 +98,7 @@ Uses anonymous pipes to connect to remote-debugging-pipes to control the browser
         PSData = @{
 
             # Tags applied to this module. These help with module discovery in online galleries.
-            Tags = @('Browser', 'Browser Automation', 'Chrome', 'Chromium', 'Edge', 'DevTools', 'Cdp')
+            Tags = @('Browser', 'BrowserAutomation', 'Chrome', 'Chromium', 'Edge', 'DevTools', 'Cdp')
 
             # A URL to the license for this module.
             # LicenseUri = ''
