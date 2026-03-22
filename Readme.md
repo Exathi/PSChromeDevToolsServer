@@ -12,11 +12,11 @@ Two goals in making this:
 
 ## Commands
 
-Start-CdpServer - Launch browser and returns `[CdpServer]` object.
+Start-CdpServer - Launch browser and returns `[CdpServer]`.
 
 Stop-CdpServer - Close browser and dispose pipes, processes, runspace pool.
 
-New-CdpPage - Create new page/tab.
+New-CdpPage - Create new page/tab and returns `[CdpPage]`.
 
 Invoke-CdpPageNavigate - Navigate page and waits for the page to load and the unique javascript context to update for the new page.
 
@@ -28,7 +28,7 @@ ConvertTo-Delegate - Used to convert PSMethods to delegates for Windows Powershe
 
 ## Classes
 
-`Start-CdpServer` returns a `[CdpServer]` object. You will pass this into every function as they make use of `$CdpServer.SendCommand()` to send commands to the browser. Normally you won't need to use the methods in the classes.
+`Start-CdpServer` returns a `[CdpServer]` object. Pass this into every function as they internally call `$CdpServer.SendCommand()` to send commands to the browser.
 
 ``` Powershell
 # Basic information about a tab target.
