@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html data-theme="light dark">
+
+<head>
+    <title>Powershell Server</title>
+    <script src="js/scripts.js"></script>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+
+<body>
+    <header>
+        <nav class="navigation">Powershell Server</nav>
+    </header>
+    <div class="breadcrumbs-bar">
+        <div style="height: 100%; width: 8rem;">
+            <button id="currentThemeButton" class="color-theme__button">
+                <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px"
+                    fill="#e3e3e3">
+                    <path
+                        d="M337.5-463Q311-498 289-537q-5 14-6.5 28.5T281-480q0 83 58 141t141 58q14 0 28.5-2t28.5-6q-39-22-74-48.5T396-396q-32-32-58.5-67ZM567-364.5Q630-328 702-308q-40 51-98 79.5T481-200q-117 0-198.5-81.5T201-480q0-65 28.5-123t79.5-98q20 72 56.5 135T453-452q51 51 114 87.5ZM743-380q-20-5-39.5-11T665-405q8-18 11.5-36.5T680-480q0-83-58.5-141.5T480-680q-20 0-38.5 3.5T405-665q-8-19-13.5-38T381-742q24-9 49-13.5t51-4.5q117 0 198.5 81.5T761-480q0 26-4.5 51T743-380ZM440-840v-120h80v120h-80Zm0 840v-120h80V0h-80Zm323-706-57-57 85-84 57 56-85 85ZM169-113l-57-56 85-85 57 57-85 84Zm671-327v-80h120v80H840ZM0-440v-80h120v80H0Zm791 328-85-85 57-57 84 85-56 57ZM197-706l-84-85 56-57 85 85-57 57Zm199 310Z" />
+                </svg>
+                <span>Theme</span>
+            </button>
+            <div id="themeDropdown" class="dropdown-border" hidden>
+                <ul>
+                    <li>
+                        <button id="osThemeButton" class="color-theme__button">
+                            <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px"
+                                fill="#e3e3e3">
+                                <path
+                                    d="M337.5-463Q311-498 289-537q-5 14-6.5 28.5T281-480q0 83 58 141t141 58q14 0 28.5-2t28.5-6q-39-22-74-48.5T396-396q-32-32-58.5-67ZM567-364.5Q630-328 702-308q-40 51-98 79.5T481-200q-117 0-198.5-81.5T201-480q0-65 28.5-123t79.5-98q20 72 56.5 135T453-452q51 51 114 87.5ZM743-380q-20-5-39.5-11T665-405q8-18 11.5-36.5T680-480q0-83-58.5-141.5T480-680q-20 0-38.5 3.5T405-665q-8-19-13.5-38T381-742q24-9 49-13.5t51-4.5q117 0 198.5 81.5T761-480q0 26-4.5 51T743-380ZM440-840v-120h80v120h-80Zm0 840v-120h80V0h-80Zm323-706-57-57 85-84 57 56-85 85ZM169-113l-57-56 85-85 57 57-85 84Zm671-327v-80h120v80H840ZM0-440v-80h120v80H0Zm791 328-85-85 57-57 84 85-56 57ZM197-706l-84-85 56-57 85 85-57 57Zm199 310Z" />
+                            </svg>
+                            <span>OS default</span>
+                        </button>
+                    </li>
+                    <li>
+                        <button id="lightThemeButton" class="color-theme__button">
+                            <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px"
+                                fill="#e3e3e3">
+                                <path
+                                    d="M440-760v-160h80v160h-80Zm266 110-55-55 112-115 56 57-113 113Zm54 210v-80h160v80H760ZM440-40v-160h80v160h-80ZM254-652 140-763l57-56 113 113-56 54Zm508 512L651-255l54-54 114 110-57 59ZM40-440v-80h160v80H40Zm157 300-56-57 112-112 29 27 29 28-114 114Zm113-170q-70-70-70-170t70-170q70-70 170-70t170 70q70 70 70 170t-70 170q-70 70-170 70t-170-70Zm283-57q47-47 47-113t-47-113q-47-47-113-47t-113 47q-47 47-47 113t47 113q47 47 113 47t113-47ZM480-480Z" />
+                            </svg>
+                            <span>Light</span>
+                        </button>
+                    </li>
+                    <li>
+                        <button id="darkThemeButton" class="color-theme__button">
+                            <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px"
+                                fill="#e3e3e3">
+                                <path
+                                    d="M484-80q-84 0-157.5-32t-128-86.5Q144-253 112-326.5T80-484q0-146 93-257.5T410-880q-18 99 11 193.5T521-521q71 71 165.5 100T880-410q-26 144-138 237T484-80Zm0-80q88 0 163-44t118-121q-86-8-163-43.5T464-465q-61-61-97-138t-43-163q-77 43-120.5 118.5T160-484q0 135 94.5 229.5T484-160Zm-20-305Z" />
+                            </svg>
+                            <span>Dark</span>
+                        </button>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    <div class="layout__2-sidebars-inline">
+        <div class="grid-wrapper">
+            <div class="grid-container">
+                <div>
+                    <button id="First" class="button button-disabled" type="button" onclick="doTask1()"
+                        disabled>Get-Process</button>
+                </div>
+                <div>
+                    <span class="row-margin">Click Count</span>
+                </div>
+                <div>
+                    <span id="FirstCounter" class="row-margin">0</span>
+                </div>
+                <div>
+                    <button id="Second" class="button button-alternate button-disabled" type="button"
+                        onclick="doTask2()" disabled>Invoke-Something</button>
+                </div>
+                <div>
+                    <span class="row-margin">Click Count</span>
+                </div>
+                <div>
+                    <span id="SecondCounter" class="row-margin">0</span>
+                </div>
+                <div class="grid-wide">
+                    <table id="powershellResponseTable"></table>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</body>
+
+</html>
