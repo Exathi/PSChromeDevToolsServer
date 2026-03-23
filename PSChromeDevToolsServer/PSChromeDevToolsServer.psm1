@@ -154,6 +154,7 @@ class CdpEventHandler {
 					FrameId = $Response.params.frameId
 					ParentFrameId = $Response.params.parentFrameId
 					SessionId = $Response.sessionId
+					RuntimeUniqueId = $null
 					IsLoading = $false
 				}
 			)
@@ -348,8 +349,14 @@ class CdpEventHandler {
 
 	hidden [void]ExecutionContextCreated($Response) {
 		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
-		if ($CdpPage) {
+		$FrameId = $Response.params.context.auxData.frameId
+		if ($CdpPage.TargetId -eq $FrameId) {
 			$CdpPage.RuntimeUniqueId = $Response.params.context.uniqueId
+		} else {
+			$Frame = $null
+			if ($CdpPage.Frames.TryGetValue($FrameId, [ref]$Frame)) {
+				$Frame.RuntimeUniqueId = $Response.params.context.uniqueId
+			}
 		}
 
 		$Callback = $this.SharedState.Callbacks['OnExecutionContextCreated']
