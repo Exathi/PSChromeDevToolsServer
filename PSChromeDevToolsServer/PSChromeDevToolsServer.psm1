@@ -693,7 +693,7 @@ class CdpCommandInput {
 			}
 		}
 	}
-	static [hashtable]dispatchMouseEvent($SessionId, $Type, $Button) {
+	static [hashtable]dispatchMouseEvent($SessionId, $Type, $X, $Y, $Button) {
 		return @{
 			method = 'Input.dispatchMouseEvent'
 			sessionId = $SessionId
@@ -701,8 +701,8 @@ class CdpCommandInput {
 				type = $Type
 				button = $Button
 				clickCount = 0
-				x = 0
-				y = 0
+				x = $X
+				y = $Y
 			}
 		}
 	}
@@ -1018,14 +1018,14 @@ function Invoke-CdpInputClickElement {
 
 	$CdpPage = $Server.GetPageBySessionId($SessionId)
 
-	$Command = [CdpCommandRuntime]::evaluate($SessionId, $Selector)
+	$Command = [CdpCommandRuntime]::evaluate($CdpPage.SessionId, $Selector)
 	$Command.params.uniqueContextId = "$($CdpPage.RuntimeUniqueId)"
 	$Response = $Server.SendCommand($Command, $true)
 	$CdpPage.ObjectId = $Response.result.result.objectId
 
 	if ($Click -le 0) { return }
 
-	$Command = [CdpCommandDom]::describeNode($SessionId, $CdpPage.ObjectId)
+	$Command = [CdpCommandDom]::describeNode($CdpPage.SessionId, $CdpPage.ObjectId)
 	$Command.params.objectId = $CdpPage.ObjectId
 	$Response = $Server.SendCommand($Command, $true)
 
@@ -1035,20 +1035,21 @@ function Invoke-CdpInputClickElement {
 
 	$CdpPage.Node = $Response.result.node
 
-	$Command = [CdpCommandDom]::getBoxModel($SessionId, $CdpPage.ObjectId)
+	$Command = [CdpCommandDom]::getBoxModel($CdpPage.SessionId, $CdpPage.ObjectId)
 	$Command.params.objectId = $CdpPage.ObjectId
 	$Response = $Server.SendCommand($Command, $true)
 	$CdpPage.BoxModel = $Response.result.model
 
-	$Command = [CdpCommandInput]::dispatchMouseEvent($CdpPage.SessionId, 'mousePressed', 'left')
-	$Command.params.clickCount = $Click
 	if ($TopLeft) {
-		$Command.params.X = $CdpPage.BoxModel.content[0] + $OffsetX
-		$Command.params.Y = $CdpPage.BoxModel.content[1] + $OffsetY
+		$PixelX = $CdpPage.BoxModel.content[0] + $OffsetX
+		$PixelY = $CdpPage.BoxModel.content[1] + $OffsetY
 	} else {
-		$Command.params.X = $CdpPage.BoxModel.content[0] + ($CdpPage.BoxModel.width / 2) + $OffsetX
-		$Command.params.Y = $CdpPage.BoxModel.content[1] + ($CdpPage.BoxModel.height / 2) + $OffsetY
+		$PixelX = $CdpPage.BoxModel.content[0] + ($CdpPage.BoxModel.width / 2) + $OffsetX
+		$PixelY = $CdpPage.BoxModel.content[1] + ($CdpPage.BoxModel.height / 2) + $OffsetY
 	}
+
+	$Command = [CdpCommandInput]::dispatchMouseEvent($CdpPage.SessionId, 'mousePressed', $PixelX, $PixelY, 'left')
+	$Command.params.clickCount = $Click
 	$Server.SendCommand($Command)
 	$Command.params.type = 'mouseReleased'
 	$Server.SendCommand($Command)
