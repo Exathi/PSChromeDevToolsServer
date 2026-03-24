@@ -147,7 +147,7 @@ class CdpEventHandler {
 	hidden [void]FrameAttached($Response) {
 		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
 		if ($CdpPage) {
-			$CdpPage.Frames.TryAdd($Response.params.frameId,
+			$null = $CdpPage.Frames.TryAdd($Response.params.frameId,
 				[pscustomobject]@{
 					FrameStartedLoading = 0
 					FrameStoppedLoading = 0
