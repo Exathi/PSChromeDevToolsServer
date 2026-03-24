@@ -7,11 +7,16 @@ $BrowserPath = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
 
 $Server = Start-CdpServer -StartPage $UriBuilder.Uri.AbsoluteUri -UserDataDir $UserDataDir -BrowserPath $BrowserPath
 
-$FirstTab = $Server.SharedState.Targets[0]
-Invoke-CdpPageNavigate -Server $Server -SessionId $FirstTab.SessionId -Url 'https://www.google.com'
-Invoke-CdpInputClickElement -Server $Server -SessionId $FirstTab.SessionId -Selector 'document.querySelector("[name=q]")' -Click 1
+$FirstTab = $Server.SharedState.Targets.Values[0]
+Invoke-CdpPageNavigate -Server $Server -SessionId $FirstTab.SessionId -Url 'https://www.selenium.dev/selenium/web/click_frames.html'
+Invoke-CdpInputClickElement -Server $Server -SessionId $FirstTab.SessionId -Selector 'document.querySelector("frameset frame").contentDocument.querySelector("[id=source]").contentDocument.querySelector("[id=otherframe]")' -Click 1
+
+Start-Sleep -Seconds 1
+
+Invoke-CdpPageNavigate -Server $Server -SessionId $FirstTab.SessionId -Url 'https://www.selenium.dev/selenium/web/single_text_input.html'
+Invoke-CdpInputClickElement -Server $Server -SessionId $FirstTab.SessionId -Selector 'document.querySelector("[id=textInput]")' -Click 1
 Invoke-CdpInputSendKeys -Server $Server -SessionId $FirstTab.SessionId -Keys 'Hello World'
-Invoke-CdpInputClickElement -Server $Server -SessionId $FirstTab.SessionId -Selector 'document.querySelector("[name=q]")' -Click 3 -TopLeft
+Invoke-CdpInputClickElement -Server $Server -SessionId $FirstTab.SessionId -Selector 'document.querySelector("#textInput")' -Click 3 -TopLeft
 Invoke-CdpInputSendKeys -Server $Server -SessionId $FirstTab.SessionId -Keys 'PSChromeDevToolsServer'
 
 $SecondTab = New-CdpPage -Server $Server -Url 'https://www.selenium.dev/selenium/web/click_frames.html'
