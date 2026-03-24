@@ -5,55 +5,81 @@ $UriBuilder = [System.UriBuilder]::new($StartPage)
 $UserDataDir = 'D:\The Testing Folder\Edge\TestUserData'
 $BrowserPath = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
 
-# 2 additional threads to run each $Async in the runspacepool.
-$Server = Start-CdpServer -StartPage $UriBuilder.Uri.AbsoluteUri -UserDataDir $UserDataDir -BrowserPath $BrowserPath -AdditionalThreads 2
+# 3 additional threads to run each $Async in the runspacepool.
+# last one is queued since there are not enough runspaces in the pool.
+$Server = Start-CdpServer -StartPage $UriBuilder.Uri.AbsoluteUri -UserDataDir $UserDataDir -BrowserPath $BrowserPath -AdditionalThreads 3
 
-$Async1 = [powershell]::Create().AddScript(
-    {
-        param($Server)
-        $FirstTab = $Server.SharedState.Targets[0]
-        Invoke-CdpPageNavigate -Server $Server -SessionId $FirstTab.SessionId -Url 'https://www.google.com'
-        Invoke-CdpInputClickElement -Server $Server -SessionId $FirstTab.SessionId -Selector 'document.querySelector("[name=q]")' -Click 1
-        Invoke-CdpInputSendKeys -Server $Server -SessionId $FirstTab.SessionId -Keys 'Hello World'
-        Invoke-CdpInputClickElement -Server $Server -SessionId $FirstTab.SessionId -Selector 'document.querySelector("[name=q]")' -Click 3 -TopLeft
-        Invoke-CdpInputSendKeys -Server $Server -SessionId $FirstTab.SessionId -Keys 'PSChromeDevToolsServer'
+$TestClickType = {
+    param($Server)
+    $CdpPage = New-CdpPage -Server $Server -Url 'https://www.selenium.dev/selenium/web/single_text_input.html' -NewWindow
+    Invoke-CdpPageNavigate -Server $Server -SessionId $CdpPage.SessionId -Url 'https://www.selenium.dev/selenium/web/single_text_input.html'
+    Invoke-CdpInputClickElement -Server $Server -SessionId $CdpPage.SessionId -Selector 'document.querySelector("[id=textInput]")' -Click 1
+    Invoke-CdpInputSendKeys -Server $Server -SessionId $CdpPage.SessionId -Keys 'Hello World'
+    Invoke-CdpInputClickElement -Server $Server -SessionId $CdpPage.SessionId -Selector 'document.querySelector("#textInput")' -Click 3 -TopLeft
+    Invoke-CdpInputSendKeys -Server $Server -SessionId $CdpPage.SessionId -Keys 'PSChromeDevToolsServer'
 
-        'Finished from Async1'
-    }.Ast.GetScriptBlock()
-).AddParameter('Server', $Server)
+    'Finished TestClickType'
+}.Ast.GetScriptBlock()
+
+$TestClickFrame = {
+    param($Server)
+    # We use -NewWindow because sometimes inputs do not register to a tab that is not active.
+    # It does work if tabs are on separate windows.
+    # Alternatively use javascript.click()
+    $CdpPage = New-CdpPage -Server $Server -Url 'https://www.selenium.dev/selenium/web/click_frames.html' -NewWindow
+    Invoke-CdpInputClickElement -Server $Server -SessionId $CdpPage.SessionId -Selector 'document.querySelector("frameset frame").contentDocument.querySelector("[id=source]").contentDocument.querySelector("[id=otherframe]")' -Click 1
+
+    'Finished TestClickFrame'
+}.Ast.GetScriptBlock()
+
+$Async1 = [powershell]::Create().AddScript($TestClickType).AddParameter('Server', $Server)
+$Async2 = [powershell]::Create().AddScript($TestClickFrame).AddParameter('Server', $Server)
+$Async3 = [powershell]::Create().AddScript($TestClickFrame).AddParameter('Server', $Server)
+$Async4 = [powershell]::Create().AddScript($TestClickType).AddParameter('Server', $Server)
 $Async1.RunspacePool = $Server.Runspacepool
-$Handle1 = $Async1.BeginInvoke()
-
-$Async2 = [powershell]::Create().AddScript(
-    {
-        param($Server)
-        # We use -NewWindow because inputs do not register to a tab that is not active.
-        # It does work if tabs are on separate windows.
-        # Alternatively use javascript.click()
-        $SecondTab = New-CdpPage -Server $Server -Url 'https://www.selenium.dev/selenium/web/click_frames.html' -NewWindow
-        Invoke-CdpInputClickElement -Server $Server -SessionId $SecondTab.SessionId -Selector 'document.querySelector("frameset frame").contentDocument.querySelector("[id=source]").contentDocument.querySelector("[id=otherframe]")' -Click 1
-
-        'Finished from Async2'
-    }.Ast.GetScriptBlock()
-).AddParameter('Server', $Server)
 $Async2.RunspacePool = $Server.Runspacepool
+$Async3.RunspacePool = $Server.Runspacepool
+$Async4.RunspacePool = $Server.Runspacepool
+$Handle1 = $Async1.BeginInvoke()
 $Handle2 = $Async2.BeginInvoke()
+$Handle3 = $Async3.BeginInvoke()
+$Handle4 = $Async4.BeginInvoke()
 
 # For Windows Powershell compatability.
 # Newer versions have InvokeAsync() that return a task.
 $EndInvokeDelegate1 = ConvertTo-Delegate -Method $Async1.EndInvoke -Target $Async1
 $EndInvokeDelegate2 = ConvertTo-Delegate -Method $Async2.EndInvoke -Target $Async2
+$EndInvokeDelegate3 = ConvertTo-Delegate -Method $Async3.EndInvoke -Target $Async3
+$EndInvokeDelegate4 = ConvertTo-Delegate -Method $Async4.EndInvoke -Target $Async4
 
 $Task1 = [System.Threading.Tasks.Task]::Factory.FromAsync($Handle1, $EndInvokeDelegate1)
 $Task2 = [System.Threading.Tasks.Task]::Factory.FromAsync($Handle2, $EndInvokeDelegate2)
+$Task3 = [System.Threading.Tasks.Task]::Factory.FromAsync($Handle3, $EndInvokeDelegate3)
+$Task4 = [System.Threading.Tasks.Task]::Factory.FromAsync($Handle4, $EndInvokeDelegate4)
 
-$WaitAll = [System.Threading.Tasks.Task]::WhenAll($Task1, $Task2)
+$WaitAll = [System.Threading.Tasks.Task]::WhenAll($Task1, $Task2, $Task3, $Task4)
 $WaitAll.GetAwaiter().GetResult()
 
-$Server.ShowMessageHistory() | Format-Table -AutoSize
+$Task1.Dispose()
+$Task2.Dispose()
+$Task3.Dispose()
+$Task4.Dispose()
 
-$Server.Threads.MessageReader.Streams
-$Server.Threads.MessageProcessor.Streams
-$Server.Threads.MessageWriter.Streams
+$Handle1 = $Async1.BeginInvoke()
+$Handle2 = $Async2.BeginInvoke()
+$Handle3 = $Async3.BeginInvoke()
+$Handle4 = $Async4.BeginInvoke()
+$Task1 = [System.Threading.Tasks.Task]::Factory.FromAsync($Handle1, $EndInvokeDelegate1)
+$Task2 = [System.Threading.Tasks.Task]::Factory.FromAsync($Handle2, $EndInvokeDelegate2)
+$Task3 = [System.Threading.Tasks.Task]::Factory.FromAsync($Handle3, $EndInvokeDelegate3)
+$Task4 = [System.Threading.Tasks.Task]::Factory.FromAsync($Handle4, $EndInvokeDelegate4)
+$WaitAll = [System.Threading.Tasks.Task]::WhenAll($Task1, $Task2, $Task3, $Task4)
+$WaitAll.GetAwaiter().GetResult()
+
+# $Server.ShowMessageHistory() | Format-Table -AutoSize
+
+# $Server.Threads.MessageReader.Streams
+# $Server.Threads.MessageProcessor.Streams
+# $Server.Threads.MessageWriter.Streams
 
 # Stop-CdpServer -Server $Server
