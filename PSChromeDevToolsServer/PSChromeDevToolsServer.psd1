@@ -4,7 +4,7 @@
     RootModule = 'PSChromeDevToolsServer.psm1'
 
     # Version number of this module.
-    ModuleVersion = '0.1.0'
+    ModuleVersion = '0.1.1'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -22,10 +22,10 @@
     Copyright = '(c) . All rights reserved.'
 
     # Description of the functionality provided by this module
-    Description = '@
+    Description = @'
 Automate any Chromium browser with Powershell using the Chrome DevTools Protocol.
 Uses anonymous pipes to connect to remote-debugging-pipes to control the browser.
-@'
+'@
 
     # Minimum version of the PowerShell engine required by this module
     PowerShellVersion = '5.1'
