@@ -518,17 +518,18 @@ class CdpServer {
 							$LastCommandId = $Response.id
 						} else {
 							while (!$SharedState.TryGetValue('CommandId', [ref]$LastCommandId)) {
-								Write-Host "couldn't get commandid: $($Response.id) method: $($Response.method) error: $($Response.error)" -ForegroundColor Red
+								# Write-Debug "couldn't get commandid: $($Response.id) method: $($Response.method) error: $($Response.error)" -ForegroundColor Red
 								Start-Sleep -Milliseconds 50
 							}
 						}
 
 						do {
 							$SucessfullyAdded = if ($Response.id) {
-								$SharedState.MessageHistory.GetOrAdd([version]::new($LastCommandId, 0), $Response)
+								$SharedState.MessageHistory.TryAdd([version]::new($LastCommandId, 0), $Response)
 
 								if (!$SucessfullyAdded) {
-									Write-Host "couldn't add message: $($Response.id) $SucessfullyAdded" -ForegroundColor Red
+									# Write-Debug "couldn't add message: $($Response.id) $SucessfullyAdded" -ForegroundColor Red
+									Start-Sleep -Milliseconds 50
 								}
 							} else {
 								$SharedState.MessageHistory.TryAdd([version]::new($LastCommandId, $ResponseIndex++), $Response)
