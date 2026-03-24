@@ -65,8 +65,8 @@ $Server = Start-CdpServer -StartPage $UriBuilder.Uri.AbsoluteUri -UserDataDir $U
 
 # Add 'PowershellServer' through addBinding. When a button is clicked, it calls window.PowershellServer(payload); configured in script.js
 # $OnBindingCalled is invoked and ran when a button is clicked.
-$Server.SendRuntimeAddBinding($Server.SharedState.Targets[0].SessionId, 'PowershellServer')
-$Server.SendRuntimeEvaluate($Server.SharedState.Targets[0].SessionId, 'enableAllButtons()')
+$Server.SendRuntimeAddBinding($Server.SharedState.Targets.Values[0].SessionId, 'PowershellServer')
+$Server.SendRuntimeEvaluate($Server.SharedState.Targets.Values[0].SessionId, 'enableAllButtons()')
 
 $Server.ShowMessageHistory() | Format-Table -AutoSize
 
