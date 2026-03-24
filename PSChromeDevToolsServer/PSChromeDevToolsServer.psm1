@@ -92,7 +92,7 @@ class CdpEventHandler {
 	[System.Collections.Generic.Dictionary[string, object]]$SharedState
 	[hashtable]$EventHandlers
 
-	CdpEventHandler([System.Collections.Generic.Dictionary[string, object]]$SharedState) {
+	CdpEventHandler([System.Collections.Concurrent.ConcurrentDictionary[string, object]]$SharedState) {
 		$this.SharedState = $SharedState
 		$this.InitializeHandlers()
 	}
@@ -271,7 +271,7 @@ class CdpEventHandler {
 	hidden [void]TargetCreated($Response) {
 		$Target = $Response.params.targetInfo
 		$CdpPage = [CdpPage]::new($Target.targetId, $Target.Url, $Target.Title, $Response.params.sessionId)
-		$this.SharedState.Targets.Add($CdpPage)
+		$null = $this.SharedState.Targets.TryAdd($Target.targetId, $CdpPage)
 
 		$Callback = $this.SharedState.Callbacks['OnTargetCreated']
 		if ($Callback) {
@@ -282,7 +282,7 @@ class CdpEventHandler {
 	hidden [void]TargetDestroyed($Response) {
 		$CdpPage = $this.GetPageByTargetId($Response.params.targetId)
 		if ($CdpPage) {
-			$null = $this.SharedState.Targets.Remove($CdpPage)
+			$null = $this.SharedState.Targets.TryRemove($CdpPage.TargetId, [ref]$null)
 		}
 
 		$Callback = $this.SharedState.Callbacks['OnTargetDestroyed']
@@ -365,18 +365,27 @@ class CdpEventHandler {
 		}
 	}
 
-	hidden [CdpPage]GetPageBySessionId([string]$SessionId) {
-		return $this.SharedState.Targets.Find({ param($Page) $Page.SessionId -eq $SessionId })
+	[CdpPage]GetPageBySessionId([string]$SessionId) {
+		$Page = $null
+		$Target = $this.SharedState.Targets.ToArray().Value.Where({
+				$_.SessionId -eq $SessionId
+			}
+		)
+		$null = $this.SharedState.Targets.TryGetValue($Target.TargetId, [ref]$Page)
+		return $Page
 	}
 
 	hidden [CdpPage]GetPageByTargetId([string]$TargetId) {
-		return $this.SharedState.Targets.Find({ param($Page) $Page.TargetId -eq $TargetId })
+		$Page = $null
+		$Found = $this.SharedState.Targets.ToArray().Value.Where({ $_.TargetId -eq $TargetId })
+		$null = $this.SharedState.Targets.TryGetValue($Found.TargetId, [ref]$Page)
+		return $Page
 	}
 }
 
 # [NoRunspaceAffinity()]
 class CdpServer {
-	[System.Collections.Generic.Dictionary[string, object]]$SharedState = [System.Collections.Generic.Dictionary[string, object]]::new()
+	[System.Collections.Concurrent.ConcurrentDictionary[string, object]]$SharedState = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
 	[System.Management.Automation.Runspaces.RunspacePool]$RunspacePool
 	[System.Diagnostics.Process]$ChromeProcess
 	[pscustomobject]$Threads = @{
@@ -411,8 +420,8 @@ class CdpServer {
 		}
 
 		$this.SharedState.MessageHistory = [System.Collections.Concurrent.ConcurrentDictionary[version, object]]::new()
-		$this.SharedState.CommandId = [ref]::new([int]0)
-		$this.SharedState.Targets = [System.Collections.Generic.List[CdpPage]]::new()
+		$this.SharedState.CommandId = 0
+		$this.SharedState.Targets = [System.Collections.Concurrent.ConcurrentDictionary[string, CdpPage]]::new()
 		$this.SharedState.Callbacks = [System.Collections.Generic.Dictionary[string, scriptblock]]::new()
 
 		foreach ($Key in $Callbacks.Keys) {
@@ -504,10 +513,23 @@ class CdpServer {
 				while ($SharedState.IO.PipeReader.IsConnected -and $SharedState.IO.PipeWriter.IsConnected) {
 					while ($SharedState.IO.UnprocessedResponses.TryDequeue([ref]$Response)) {
 
-						$LastCommandId = [System.Threading.Interlocked]::Read([ref]$SharedState.CommandId)
+						$LastCommandId = $null
+						if ($Response.id) {
+							$LastCommandId = $Response.id
+						} else {
+							while (!$SharedState.TryGetValue('CommandId', [ref]$LastCommandId)) {
+								Write-Host "couldn't get commandid: $($Response.id) method: $($Response.method) error: $($Response.error)" -ForegroundColor Red
+								Start-Sleep -Milliseconds 50
+							}
+						}
+
 						do {
 							$SucessfullyAdded = if ($Response.id) {
-								$SharedState.MessageHistory.TryAdd([version]::new($Response.id, 0), $Response)
+								$SharedState.MessageHistory.GetOrAdd([version]::new($LastCommandId, 0), $Response)
+
+								if (!$SucessfullyAdded) {
+									Write-Host "couldn't add message: $($Response.id) $SucessfullyAdded" -ForegroundColor Red
+								}
 							} else {
 								$SharedState.MessageHistory.TryAdd([version]::new($LastCommandId, $ResponseIndex++), $Response)
 							}
@@ -573,14 +595,15 @@ class CdpServer {
 
 	[object]SendCommand([hashtable]$Command, [bool]$WaitForResponse) {
 		# This should be the only place where $this.SharedState.CommandId is incremented.
-		$Command.id = [System.Threading.Interlocked]::Increment([ref]$this.SharedState.CommandId)
+		$CommandId = $this.SharedState.AddOrUpdate('CommandId', 1, { param($Key, $OldValue) $OldValue + 1 })
+
+		$Command.id = $CommandId
 		$JsonCommand = $Command | ConvertTo-Json -Depth 10 -Compress
 		$CommandBytes = [System.Text.Encoding]::UTF8.GetBytes($JsonCommand) + 0
 		$this.SharedState.IO.CommandQueue.Enqueue($CommandBytes)
 		if ($WaitForResponse) {
-			# while (!$this.SharedState.MessageHistory.ContainsKey([version]::new($Command.id, 0))) {
 			$AwaitedMessage = $null
-			while (!$this.SharedState.MessageHistory.TryGetValue([version]::new($Command.id, 0), [ref]$AwaitedMessage)) {
+			while (!$this.SharedState.MessageHistory.TryGetValue([version]::new($CommandId, 0), [ref]$AwaitedMessage)) {
 				Start-Sleep -Milliseconds 50
 			}
 			return $AwaitedMessage
@@ -589,11 +612,20 @@ class CdpServer {
 	}
 
 	[CdpPage]GetPageBySessionId([string]$SessionId) {
-		return $this.SharedState.Targets.Find({ param($Page) $Page.SessionId -eq $SessionId })
+		$Page = $null
+		$Target = $this.SharedState.Targets.ToArray().Value.Where({
+				$_.SessionId -eq $SessionId
+			}
+		)
+		$this.SharedState.Targets.TryGetValue($Target.TargetId, [ref]$Page)
+		return $Page
 	}
 
 	[CdpPage]GetPageByTargetId([string]$TargetId) {
-		return $this.SharedState.Targets.Find({ param($Page) $Page.TargetId -eq $TargetId })
+		$Page = $null
+		$Found = $this.SharedState.Targets.ToArray().Value.Where({ $_.TargetId -eq $TargetId })
+		$null = $this.SharedState.Targets.TryGetValue($Found.TargetId, [ref]$Page)
+		return $Page
 	}
 
 	[void]SendPageEnable([string]$SessionId) {
@@ -623,13 +655,17 @@ class CdpServer {
 		$JsonCommand = [CdpCommandTarget]::setAutoAttach()
 		$this.SendCommand($JsonCommand)
 
-		while (!$this.SharedState.Targets[0].SessionId) {
+		while ($this.SharedState.Targets.Count -eq 0) {
 			Start-Sleep -Milliseconds 50
 		}
 
-		$this.SendPageEnable($this.SharedState.Targets[0].SessionId)
-		$this.SendRuntimeEnable($this.SharedState.Targets[0].SessionId)
-		# $this.SendRuntimeAddBinding($this.SharedState.Targets[0].SessionId, 'PowershellServer')
+		while (!$this.SharedState.Targets.Values[0].SessionId) {
+			Start-Sleep -Milliseconds 50
+		}
+
+		$this.SendPageEnable($this.SharedState.Targets.Values[0].SessionId)
+		$this.SendRuntimeEnable($this.SharedState.Targets.Values[0].SessionId)
+		# $this.SendRuntimeAddBinding($this.SharedState.Targets.Values[0].SessionId, 'PowershellServer')
 	}
 
 	[object]ShowMessageHistory() {
@@ -896,7 +932,7 @@ function Start-CdpServer {
 		$Server.EnableDefaultEvents()
 	}
 
-	while ($Server.SharedState.Targets.Count -eq 0 -or $null -eq $Server.SharedState.Targets[0].RuntimeUniqueId -or $null -eq $Server.SharedState.Targets[0].SessionId) {
+	while ($Server.SharedState.Targets.Count -eq 0 -or $null -eq $Server.SharedState.Targets.Values[0].RuntimeUniqueId -or $null -eq $Server.SharedState.Targets.Values[0].SessionId) {
 		Start-Sleep -Seconds 1
 	}
 
