@@ -26,6 +26,10 @@ Invoke-CdpInputClickElement - Find element with javascript selector and click el
 
 Invoke-CdpInputSendKeys - Sends keys to browser.
 
+Invoke-CdpRuntimeEvaluate - run javascript on browser and return raw result.
+
+Invoke-CdpRuntimeAddBinding - add binding object to enable browser communication to the `[CdpEventHandler]`.
+
 ConvertTo-Delegate - Used to convert PSMethods to delegates for Windows Powershell. See `Example Async.ps1`.
 
 ## Classes

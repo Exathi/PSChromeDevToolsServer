@@ -681,10 +681,6 @@ class CdpServer {
 		$this.SendCommand($JsonCommand)
 		$JsonCommand = [CdpCommandRuntime]::enable($SessionId)
 		$this.SendCommand($JsonCommand, $true)
-
-		# $this.SendPageEnable($SessionId)
-		# $this.SendRuntimeEnable($SessionId)
-		# $this.SendRuntimeAddBinding($this.SharedState.Targets.Values[0].SessionId, 'PowershellServer')
 	}
 
 	[object]ShowMessageHistory() {
@@ -1180,4 +1176,51 @@ function Invoke-CdpInputSendKeys {
 			$Server.SendCommand($Command)
 		}
 	)
+}
+
+function Invoke-CdpRuntimeEvaluate {
+	<#
+		.SYNOPSIS
+		Adds a binding object to the browser
+		.PARAMETER Expression
+		The javascript to run.
+		.PARAMETER AwaitPromise
+		Use if the Expression needs to await the result.
+	#>
+	[CmdletBinding()]
+	param (
+		[Parameter(Mandatory)]
+		[CdpServer]$Server,
+		[Parameter(Mandatory)]
+		[string]$SessionId,
+		[Parameter(Mandatory)]
+		[string]$Expression,
+		[switch]$AwaitPromise
+	)
+	$CdpPage = $Server.GetPageBySessionId($SessionId)
+	$Command = [CdpCommandRuntime]::evaluate($CdpPage.TargetInfo.SessionId, $Expression)
+	$Command.params.uniqueContextId = "$($CdpPage.PageInfo.RuntimeUniqueId)"
+	if ($AwaitPromise) { $Command.params.awaitPromise = $true }
+	$Response = $Server.SendCommand($Command, $true)
+	$Response
+}
+
+function Invoke-CdpRuntimeAddBinding {
+	<#
+		.SYNOPSIS
+		Adds a binding object to the browser
+		.PARAMETER Name
+		Name of the object to use in javascript - window['name'].send(json);
+	#>
+	[CmdletBinding()]
+	param (
+		[Parameter(Mandatory)]
+		[CdpServer]$Server,
+		[Parameter(Mandatory)]
+		[string]$SessionId,
+		[Parameter(Mandatory)]
+		[string]$Name
+	)
+	$Command = [CdpCommandRuntime]::addBinding($SessionId, $Name)
+	$Server.SendCommand($Command)
 }

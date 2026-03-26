@@ -4,7 +4,7 @@
     RootModule = 'PSChromeDevToolsServer.psm1'
 
     # Version number of this module.
-    ModuleVersion = '0.1.2'
+    ModuleVersion = '0.1.3'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -71,6 +71,8 @@ Uses anonymous pipes to connect to remote-debugging-pipes to control the browser
         'Invoke-CdpPageNavigate',
         'Invoke-CdpInputClickElement',
         'Invoke-CdpInputSendKeys',
+        'Invoke-CdpRuntimeEvaluate',
+        'Invoke-CdpRuntimeAddBinding',
         'ConvertTo-Delegate'
     )
 
@@ -78,7 +80,7 @@ Uses anonymous pipes to connect to remote-debugging-pipes to control the browser
     CmdletsToExport = @()
 
     # Variables to export from this module
-    VariablesToExport = '*'
+    VariablesToExport = ''
 
     # Aliases to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no aliases to export.
     AliasesToExport = @()
