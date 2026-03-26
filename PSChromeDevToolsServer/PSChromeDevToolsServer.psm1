@@ -56,12 +56,10 @@ class CdpPage {
 	[string]$TargetId
 	[string]$Url
 	[string]$Title
-	[string]$SessionId
+	[string]$BrowserContextId
 	[int]$ProcessId
 
-	CdpPage() {}
-
-	CdpPage($TargetId, $Url, $Title) {
+	CdpPage($TargetId, $Url, $Title, $BrowserContextId) {
 		$this.TargetId = $TargetId
 		$this.Url = $Url
 		$this.Title = $Title
@@ -423,6 +421,7 @@ class CdpServer {
 		$this.SharedState.CommandId = 0
 		$this.SharedState.Targets = [System.Collections.Concurrent.ConcurrentDictionary[string, CdpPage]]::new()
 		$this.SharedState.Callbacks = [System.Collections.Generic.Dictionary[string, scriptblock]]::new()
+		$this.SharedState.BrowserContexts = [System.Collections.Generic.List[string]]::new()
 
 		foreach ($Key in $Callbacks.Keys) {
 			$this.SharedState.Callbacks[$Key] = $Callbacks[$Key]
@@ -746,6 +745,12 @@ class CdpCommandInput {
 }
 
 class CdpCommandPage {
+	static [hashtable]bringToFront($SessionId) {
+		return @{
+			method = 'Page.bringToFront'
+			sessionId = $SessionId
+		}
+	}
 	static [hashtable]enable($SessionId) {
 		return @{
 			method = 'Page.enable'
@@ -796,6 +801,14 @@ class CdpCommandTarget {
 			method = 'Target.createTarget'
 			params = @{
 				url = $Url
+			}
+		}
+	}
+	static [hashtable]createBrowserContext() {
+		return @{
+			method = 'Target.createBrowserContext'
+			params = @{
+				disposeOnDetach = $true
 			}
 		}
 	}
@@ -933,9 +946,7 @@ function Start-CdpServer {
 		$Server.EnableDefaultEvents()
 	}
 
-	while ($Server.SharedState.Targets.Count -eq 0 -or $null -eq $Server.SharedState.Targets.Values[0].RuntimeUniqueId -or $null -eq $Server.SharedState.Targets.Values[0].SessionId) {
-		Start-Sleep -Seconds 1
-	}
+	while ($Server.SharedState.BrowserContexts.Add($Server.SharedState.Targets.Values[0].BrowserContextId)
 
 	$Server
 }
@@ -964,10 +975,25 @@ function New-CdpPage {
 		[Parameter(Mandatory)]
 		[CdpServer]$Server,
 		[string]$Url = 'about:blank',
+		[Parameter(ParameterSetName = 'Tab')]
+		[string]$BrowserContextId,
+		[Parameter(ParameterSetName = 'NewWindow')]
 		[switch]$NewWindow
 	)
+
+	if ($NewWindow) {
+		$Command = [CdpCommandTarget]::createBrowserContext()
+		$Response = $Server.SendCommand($Command, $true)
+		$Server.SharedState.BrowserContexts.Add($Response.result.browserContextId)
+	}
+
 	$Command = [CdpCommandTarget]::createTarget($Url)
-	if ($NewWindow) { $Command.params.newWindow = $true }
+	if ($NewWindow) {
+		$Command.params.newWindow = $true
+		$Command.params.browserContextId = $Response.result.browserContextId
+	} else {
+		$Command.params.browserContextId = $BrowserContextId #$Server.SharedState.BrowserContexts[$BrowserContextIndex]
+	}
 	$Response = $Server.SendCommand($Command, $true)
 
 	$CdpPage = $Server.GetPageByTargetId($Response.result.targetId)
