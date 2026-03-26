@@ -10,5 +10,5 @@ jobs:
       - name: Publish
         env:
           APIKEY: ${{ secrets.APIKEY }}
-        run: .\.github\workflows\publish.ps1
+        run: ./.github/workflows/publish.ps1
         shell: pwsh
