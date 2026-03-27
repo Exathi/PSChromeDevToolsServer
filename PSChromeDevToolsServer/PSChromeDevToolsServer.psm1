@@ -657,7 +657,7 @@ class CdpServer {
 	}
 
 	[void]SendRuntimeEvaluate([string]$SessionId, [string]$Expression) {
-		$JsonCommand = [CdpCommandRuntime]::evaluate($SessionId, $Expression)
+		$JsonCommand = Get-Runtime.evaluate $SessionId $Expression
 		$this.SendCommand($JsonCommand)
 	}
 
@@ -680,7 +680,7 @@ class CdpServer {
 
 		$JsonCommand = Get-Page.enable $SessionId
 		$this.SendCommand($JsonCommand)
-		$JsonCommand = [CdpCommandRuntime]::enable($SessionId)
+		$JsonCommand = Get-Runtime.enable $SessionId
 		$this.SendCommand($JsonCommand, $true)
 	}
 
@@ -791,29 +791,30 @@ function Get-Page.navigate {
 	}
 }
 
-class CdpCommandRuntime {
-	static [hashtable]addBinding($SessionId, $Name) {
-		return @{
-			method = 'Runtime.addBinding'
-			sessionId = $SessionId
-			params = @{
-				name = $Name
-			}
+function Get-Runtime.addBinding {
+	param($SessionId, $Name)
+	@{
+		method = 'Runtime.addBinding'
+		sessionId = $SessionId
+		params = @{
+			name = $Name
 		}
 	}
-	static [hashtable]enable($SessionId) {
-		return @{
-			method = 'Runtime.enable'
-			sessionId = $SessionId
-		}
+}
+function Get-Runtime.enable {
+	param($SessionId)
+	@{
+		method = 'Runtime.enable'
+		sessionId = $SessionId
 	}
-	static [hashtable]evaluate($SessionId, $Expression) {
-		return @{
-			method = 'Runtime.evaluate'
-			sessionId = $SessionId
-			params = @{
-				expression = $Expression
-			}
+}
+function Get-Runtime.evaluate {
+	param($SessionId, $Expression)
+	@{
+		method = 'Runtime.evaluate'
+		sessionId = $SessionId
+		params = @{
+			expression = $Expression
 		}
 	}
 }
@@ -1027,7 +1028,7 @@ function New-CdpPage {
 
 	$Command = Get-Page.enable $SessionId
 	$Server.SendCommand($Command)
-	$Command = [CdpCommandRuntime]::enable($SessionId)
+	$Command = Get-Runtime.enable $SessionId
 	$null = $Server.SendCommand($Command, $true)
 
 	$RuntimeUniqueId = $null
@@ -1119,7 +1120,7 @@ function Invoke-CdpInputClickElement {
 
 	$CdpPage = $Server.GetPageBySessionId($SessionId)
 
-	$Command = [CdpCommandRuntime]::evaluate($CdpPage.TargetInfo.SessionId, $Selector)
+	$Command = Get-Runtime.evaluate $SessionId $Selector
 	$Command.params.uniqueContextId = "$($CdpPage.PageInfo.RuntimeUniqueId)"
 	$Response = $Server.SendCommand($Command, $true)
 	$CdpPage.PageInfo.ObjectId = $Response.result.result.objectId
@@ -1206,7 +1207,7 @@ function Invoke-CdpRuntimeEvaluate {
 		[switch]$AwaitPromise
 	)
 	$CdpPage = $Server.GetPageBySessionId($SessionId)
-	$Command = [CdpCommandRuntime]::evaluate($CdpPage.TargetInfo.SessionId, $Expression)
+	$Command = Get-Runtime.evaluate $SessionId $Expression
 	$Command.params.uniqueContextId = "$($CdpPage.PageInfo.RuntimeUniqueId)"
 	if ($AwaitPromise) { $Command.params.awaitPromise = $true }
 	$Response = $Server.SendCommand($Command, $true)
@@ -1229,6 +1230,6 @@ function Invoke-CdpRuntimeAddBinding {
 		[Parameter(Mandatory)]
 		[string]$Name
 	)
-	$Command = [CdpCommandRuntime]::addBinding($SessionId, $Name)
+	$Command = Get-Runtime.addBinding $SessionId $Name
 	$Server.SendCommand($Command)
 }
