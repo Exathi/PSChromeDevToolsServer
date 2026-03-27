@@ -692,7 +692,7 @@ class CdpServer {
 		}
 		$Events = $this.SharedState.MessageHistory.GetEnumerator() | Sort-Object -Property Key | Select-Object -Property @(
 			@{Name = 'id'; Expression = { $_.Value.id } },
-			@{Name = 'method'; Expression = { if ($_.Value.method) {$_.Value.method} else {$CommandSnapshot[$_.Value.id]} } },
+			@{Name = 'method'; Expression = { if ($_.Value.method) { $_.Value.method } else { $CommandSnapshot[[int]$_.Value.id] } } },
 			@{Name = 'error'; Expression = { $_.Value.error } },
 			@{Name = 'sessionId'; Expression = { $_.Value.sessionId } },
 			@{Name = 'result'; Expression = { $_.Value.result } },
