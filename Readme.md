@@ -26,9 +26,9 @@ Invoke-CdpInputClickElement - Find element with javascript selector and click el
 
 Invoke-CdpInputSendKeys - Sends keys to browser.
 
-Invoke-CdpRuntimeEvaluate - run javascript on browser and return raw result.
+Invoke-CdpRuntimeEvaluate - Run javascript on browser and return raw result.
 
-Invoke-CdpRuntimeAddBinding - add binding object to enable browser communication to the `[CdpEventHandler]`.
+Invoke-CdpRuntimeAddBinding - Add binding object to enable browser communication to the `[CdpEventHandler]`.
 
 ConvertTo-Delegate - Used to convert PSMethods to delegates for Windows Powershell. See `Example Async.ps1`.
 
@@ -39,6 +39,9 @@ ConvertTo-Delegate - Used to convert PSMethods to delegates for Windows Powershe
 ``` Powershell
 # Basic information about a tab target.
 [CdpPage]
+
+# Basic information about a frame. Resides in $Target.Frames
+[CdpFrame]
 
 # Responsible for providing methods to process each event response
 [CdpEventHandler]
@@ -71,7 +74,7 @@ $CdpServer.StartMessageProcessor()
 $CdpServer.StartMessageWriter()
 
 # Classes with static methods do not work well in runspaces in Windows Powershell.
-# They have been replaced with functions with name Get-Domain.methodName
+# Previous version's classes are replaced with private functions with name Get-Domain.methodName
 # Ex Get-Dom.describeNode
 
 
@@ -91,6 +94,9 @@ Some events such as `Target.targetCreated` `Target.attachedToTarget` `Target.det
 
 Page events and Javascript are on by default for the first tab.
 
+`[System.Threading.Interlocked]::Add([ref]$Int)` does not work across runspaces. `ConcurrentDictionary.AddOrUpdate()` and relevant other ConcurrentDictionary threadsafe methods are used for all atomic operations.
+
 ## Todo/Considerations
 
 Break up the file into smaller pieces.
+ValueFromPipeline/ValueFromPipelineByPropertyName support.
