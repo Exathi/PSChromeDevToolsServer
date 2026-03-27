@@ -662,10 +662,10 @@ class CdpServer {
 	}
 
 	[void]EnableDefaultEvents() {
-		$JsonCommand = [CdpCommandTarget]::setDiscoverTargets()
+		$JsonCommand = Get-Target.setDiscoverTargets
 		$this.SendCommand($JsonCommand)
 
-		$JsonCommand = [CdpCommandTarget]::setAutoAttach()
+		$JsonCommand = Get-Target.setAutoAttach
 		$this.SendCommand($JsonCommand)
 
 		while ($this.SharedState.Targets.Count -eq 0) {
@@ -819,93 +819,98 @@ function Get-Runtime.evaluate {
 	}
 }
 
-class CdpCommandTarget {
-	static [hashtable]createTarget($Url) {
-		return @{
-			method = 'Target.createTarget'
-			params = @{
-				url = $Url
-			}
+function Get-Target.createTarget {
+	param($Url)
+	@{
+		method = 'Target.createTarget'
+		params = @{
+			url = $Url
 		}
 	}
-	static [hashtable]createBrowserContext() {
-		return @{
-			method = 'Target.createBrowserContext'
-			params = @{
-				disposeOnDetach = $true
-			}
+}
+
+function Get-Target.createBrowserContext {
+	param()
+	@{
+		method = 'Target.createBrowserContext'
+		params = @{
+			disposeOnDetach = $true
 		}
 	}
-	static [hashtable]setAutoAttach() {
-		return @{
-			method = 'Target.setAutoAttach'
-			params = @{
-				autoAttach = $true
-				waitForDebuggerOnStart = $false
-				filter = @(
-					@{
-						type = 'service_worker'
-						exclude = $true
-					},
-					@{
-						type = 'worker'
-						exclude = $true
-					},
-					@{
-						type = 'browser'
-						exclude = $true
-					},
-					@{
-						type = 'tab'
-						exclude = $true
-					},
-					# @{
-					# 	type = 'other'
-					# 	exclude = $true
-					# },
-					@{
-						type = 'background_page'
-						exclude = $true
-					},
-					@{}
-				)
-				flatten = $true
-			}
+}
+
+function Get-Target.setAutoAttach {
+	param()
+	@{
+		method = 'Target.setAutoAttach'
+		params = @{
+			autoAttach = $true
+			waitForDebuggerOnStart = $false
+			filter = @(
+				@{
+					type = 'service_worker'
+					exclude = $true
+				},
+				@{
+					type = 'worker'
+					exclude = $true
+				},
+				@{
+					type = 'browser'
+					exclude = $true
+				},
+				@{
+					type = 'tab'
+					exclude = $true
+				},
+				# @{
+				# 	type = 'other'
+				# 	exclude = $true
+				# },
+				@{
+					type = 'background_page'
+					exclude = $true
+				},
+				@{}
+			)
+			flatten = $true
 		}
 	}
-	static [hashtable]setDiscoverTargets() {
-		return @{
-			method = 'Target.setDiscoverTargets'
-			params = @{
-				discover = $true
-				filter = @(
-					@{
-						type = 'service_worker'
-						exclude = $true
-					},
-					@{
-						type = 'worker'
-						exclude = $true
-					},
-					@{
-						type = 'browser'
-						exclude = $true
-					},
-					@{
-						type = 'tab'
-						exclude = $true
-					},
-					# @{
-					# 	type = 'other'
-					# 	exclude = $true
-					# },
-					@{
-						type = 'background_page'
-						exclude = $true
-					},
-					@{}
-				)
-			}
+}
+
+function Get-Target.setDiscoverTargets {
+	param($Url)
+	@{
+		method = 'Target.setDiscoverTargets'
+		params = @{
+			discover = $true
+			filter = @(
+				@{
+					type = 'service_worker'
+					exclude = $true
+				},
+				@{
+					type = 'worker'
+					exclude = $true
+				},
+				@{
+					type = 'browser'
+					exclude = $true
+				},
+				@{
+					type = 'tab'
+					exclude = $true
+				},
+				# @{
+				# 	type = 'other'
+				# 	exclude = $true
+				# },
+				@{
+					type = 'background_page'
+					exclude = $true
+				},
+				@{}
+			)
 		}
 	}
 }
@@ -1006,12 +1011,12 @@ function New-CdpPage {
 	)
 
 	if ($NewWindow) {
-		$Command = [CdpCommandTarget]::createBrowserContext()
+		$Command = Get-Target.createBrowserContext
 		$Response = $Server.SendCommand($Command, $true)
 		$Server.SharedState.BrowserContexts.Add($Response.result.browserContextId)
 	}
 
-	$Command = [CdpCommandTarget]::createTarget($Url)
+	$Command = Get-Target.createTarget $Url
 	if ($NewWindow) {
 		$Command.params.newWindow = $true
 		$Command.params.browserContextId = $Response.result.browserContextId
