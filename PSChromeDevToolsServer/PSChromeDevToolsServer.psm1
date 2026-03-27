@@ -417,6 +417,7 @@ class CdpServer {
 		MessageWriter = $null
 		MessageWriterHandle = $null
 	}
+	[System.Collections.Concurrent.ConcurrentDictionary[string, string]]$CommandHistory = [System.Collections.Concurrent.ConcurrentDictionary[string, string]]::new()
 
 	CdpServer($StartPage, $UserDataDir, $BrowserPath, $StreamOutput) {
 		$this.Init($StartPage, $UserDataDir, $BrowserPath, $StreamOutput, 0, $null)
@@ -618,7 +619,7 @@ class CdpServer {
 	[object]SendCommand([hashtable]$Command, [bool]$WaitForResponse) {
 		# This should be the only place where $this.SharedState.CommandId is incremented.
 		$CommandId = $this.SharedState.AddOrUpdate('CommandId', 1, { param($Key, $OldValue) $OldValue + 1 })
-
+		$null = $this.CommandHistory.TryAdd($CommandId, $Command.method)
 		$Command.id = $CommandId
 		$JsonCommand = $Command | ConvertTo-Json -Depth 10 -Compress
 		$CommandBytes = [System.Text.Encoding]::UTF8.GetBytes($JsonCommand) + 0
@@ -684,14 +685,20 @@ class CdpServer {
 	}
 
 	[object]ShowMessageHistory() {
-		return $this.SharedState.MessageHistory.GetEnumerator() | Sort-Object -Property Key | Select-Object -Property @(
+		$CommandSnapshot = @{}
+		$Commands = $this.CommandHistory.GetEnumerator()
+		foreach ($Message in $Commands) {
+			$CommandSnapshot[[int]$Message.Key] = $Message.Value
+		}
+		$Events = $this.SharedState.MessageHistory.GetEnumerator() | Sort-Object -Property Key | Select-Object -Property @(
 			@{Name = 'id'; Expression = { $_.Value.id } },
-			@{Name = 'method'; Expression = { $_.Value.method } },
+			@{Name = 'method'; Expression = { if ($_.Value.method) {$_.Value.method} else {$CommandSnapshot[$_.Value.id]} } },
 			@{Name = 'error'; Expression = { $_.Value.error } },
 			@{Name = 'sessionId'; Expression = { $_.Value.sessionId } },
 			@{Name = 'result'; Expression = { $_.Value.result } },
 			@{Name = 'params'; Expression = { $_.Value.params } }
 		)
+		return $Events
 	}
 
 	hidden [Delegate]CreateDelegate([System.Management.Automation.PSMethod]$Method) {
