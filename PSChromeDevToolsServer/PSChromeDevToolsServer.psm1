@@ -1197,11 +1197,46 @@ function Invoke-CdpInputSendKeys {
 function Invoke-CdpRuntimeEvaluate {
 	<#
 		.SYNOPSIS
-		Adds a binding object to the browser
+		Run javascript on the browser and return the raw response.
 		.PARAMETER Expression
-		The javascript to run.
+		The javascript expression to run.
 		.PARAMETER AwaitPromise
-		Use if the Expression needs to await the result.
+		Use if the Expression includes a promise that needs to be awaited.
+
+		.EXAMPLE
+		This returns after ~3-4 seconds rather than 2+2+2=6 seconds
+		If AwaitPromise was not used, Invoke-CdpRuntimeEvaluate will return immediately with $Result.result.result = javascript promise object.
+
+		$Expression = @'
+function timedPromise(name, delay) {
+	return new Promise(resolve => {
+		setTimeout(() => {
+			resolve(`${name} resolved`);
+		}, delay);
+	});
+}
+
+async function awaitMultiplePromises() {
+	const promise1 = timedPromise("Promise 1", 2000);
+	const promise2 = timedPromise("Promise 2", 2000);
+	const promise3 = timedPromise("Promise 3", 2000);
+
+	const results = await Promise.all([promise1, promise2, promise3]);
+
+	const displayBox = document.querySelector("[id=textInput]");
+	displayBox.value = results;
+
+	return 'AwaitPromise'
+}
+
+awaitMultiplePromises();
+'@
+	$StartTime = Get-Date
+	$Result = Invoke-CdpRuntimeEvaluate -Server $Server -SessionId $SessionId -Expression $Expression -AwaitPromise
+	$EndTime = Get-Date
+	($EndTime - $StartTime).TotalSeconds
+	$Result.result.result
+
 	#>
 	[CmdletBinding()]
 	param (
@@ -1226,7 +1261,7 @@ function Invoke-CdpRuntimeAddBinding {
 		.SYNOPSIS
 		Adds a binding object to the browser
 		.PARAMETER Name
-		Name of the object to use in javascript - window['name'].send(json);
+		Name of the object to use in javascript - window.Name(json);
 	#>
 	[CmdletBinding()]
 	param (
