@@ -719,23 +719,23 @@ class CdpServer {
 	}
 }
 
-class CdpCommandDom {
-	static [hashtable]describeNode($SessionId, $ObjectId) {
-		return @{
-			method = 'DOM.describeNode'
-			sessionId = $SessionId
-			params = @{
-				objectId = "$ObjectId"
-			}
+function Get-DOM.describeNode {
+	param($SessionId, $ObjectId)
+	@{
+		method = 'DOM.describeNode'
+		sessionId = $SessionId
+		params = @{
+			objectId = "$ObjectId"
 		}
 	}
-	static [hashtable]getBoxModel($SessionId, $ObjectId) {
-		return @{
-			method = 'DOM.getBoxModel'
-			sessionId = $SessionId
-			params = @{
-				objectId = "$ObjectId"
-			}
+}
+function Get-DOM.getBoxModel {
+	param($SessionId, $ObjectId)
+	@{
+		method = 'DOM.getBoxModel'
+		sessionId = $SessionId
+		params = @{
+			objectId = "$ObjectId"
 		}
 	}
 }
@@ -1125,7 +1125,7 @@ function Invoke-CdpInputClickElement {
 
 	if ($Click -le 0) { return }
 
-	$Command = [CdpCommandDom]::describeNode($CdpPage.TargetInfo.SessionId, $CdpPage.PageInfo.ObjectId)
+	$Command = Get-DOM.describeNode $SessionId $CdpPage.PageInfo.ObjectId
 	$Command.params.objectId = $CdpPage.PageInfo.ObjectId
 	$Response = $Server.SendCommand($Command, $true)
 
@@ -1135,7 +1135,7 @@ function Invoke-CdpInputClickElement {
 
 	$CdpPage.PageInfo.Node = $Response.result.node
 
-	$Command = [CdpCommandDom]::getBoxModel($CdpPage.TargetInfo.SessionId, $CdpPage.PageInfo.ObjectId)
+	$Command = Get-DOM.getBoxModel $SessionId $CdpPage.PageInfo.ObjectId
 	$Command.params.objectId = $CdpPage.PageInfo.ObjectId
 	$Response = $Server.SendCommand($Command, $true)
 	$CdpPage.PageInfo.BoxModel = $Response.result.model
