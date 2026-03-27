@@ -678,7 +678,7 @@ class CdpServer {
 			Start-Sleep -Milliseconds 50
 		}
 
-		$JsonCommand = [CdpCommandPage]::enable($SessionId)
+		$JsonCommand = Get-Page.enable $SessionId
 		$this.SendCommand($JsonCommand)
 		$JsonCommand = [CdpCommandRuntime]::enable($SessionId)
 		$this.SendCommand($JsonCommand, $true)
@@ -766,26 +766,27 @@ function Get-Input.dispatchMouseEvent {
 	}
 }
 
-class CdpCommandPage {
-	static [hashtable]bringToFront($SessionId) {
-		return @{
-			method = 'Page.bringToFront'
-			sessionId = $SessionId
-		}
+function Get-Page.bringToFront {
+	param($SessionId)
+	@{
+		method = 'Page.bringToFront'
+		sessionId = $SessionId
 	}
-	static [hashtable]enable($SessionId) {
-		return @{
-			method = 'Page.enable'
-			sessionId = $SessionId
-		}
+}
+function Get-Page.enable {
+	param($SessionId)
+	@{
+		method = 'Page.enable'
+		sessionId = $SessionId
 	}
-	static [hashtable]navigate($SessionId, $Url) {
-		return @{
-			method = 'Page.navigate'
-			sessionId = $SessionId
-			params = @{
-				url = $Url
-			}
+}
+function Get-Page.navigate {
+	param($SessionId, $Url)
+	@{
+		method = 'Page.navigate'
+		sessionId = $SessionId
+		params = @{
+			url = $Url
 		}
 	}
 }
@@ -1024,7 +1025,7 @@ function New-CdpPage {
 		$null = $CdpPage.TargetInfo.TryGetValue('SessionId', [ref]$SessionId)
 	}
 
-	$Command = [CdpCommandPage]::enable($SessionId)
+	$Command = Get-Page.enable $SessionId
 	$Server.SendCommand($Command)
 	$Command = [CdpCommandRuntime]::enable($SessionId)
 	$null = $Server.SendCommand($Command, $true)
@@ -1053,10 +1054,10 @@ function Invoke-CdpPageNavigate {
 		[string]$Url
 	)
 
-	$Command = [CdpCommandPage]::navigate($SessionId, $Url)
 	$CdpPage = $Server.GetPageBySessionId($SessionId)
 	$OldRuntimeUniqueId = $CdpPage.PageInfo.RuntimeUniqueId
 
+	$Command = Get-Page.navigate $SessionId $Url
 	$Server.SendCommand($Command)
 
 	$NewRuntimeUniqueId = $null
@@ -1140,7 +1141,7 @@ function Invoke-CdpInputClickElement {
 	$Response = $Server.SendCommand($Command, $true)
 	$CdpPage.PageInfo.BoxModel = $Response.result.model
 
-	$Command = [CdpCommandPage]::bringToFront($CdpPage.TargetInfo.SessionId)
+	$Command = Get-Page.bringToFront $SessionId
 	$Response = $Server.SendCommand($Command, $true)
 
 	if ($TopLeft) {
