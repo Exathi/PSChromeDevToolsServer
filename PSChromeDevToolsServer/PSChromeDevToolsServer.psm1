@@ -740,28 +740,28 @@ function Get-DOM.getBoxModel {
 	}
 }
 
-class CdpCommandInput {
-	static [hashtable]dispatchKeyEvent($SessionId, $Text) {
-		return @{
-			method = 'Input.dispatchKeyEvent'
-			sessionId = $SessionId
-			params = @{
-				type = 'char'
-				text = $Text
-			}
+function Get-Input.dispatchKeyEvent {
+	param($SessionId, $Text)
+	@{
+		method = 'Input.dispatchKeyEvent'
+		sessionId = $SessionId
+		params = @{
+			type = 'char'
+			text = $Text
 		}
 	}
-	static [hashtable]dispatchMouseEvent($SessionId, $Type, $X, $Y, $Button) {
-		return @{
-			method = 'Input.dispatchMouseEvent'
-			sessionId = $SessionId
-			params = @{
-				type = $Type
-				button = $Button
-				clickCount = 0
-				x = $X
-				y = $Y
-			}
+}
+function Get-Input.dispatchMouseEvent {
+	param($SessionId, $Type, $X, $Y, $Button)
+	@{
+		method = 'Input.dispatchMouseEvent'
+		sessionId = $SessionId
+		params = @{
+			type = $Type
+			button = $Button
+			clickCount = 0
+			x = $X
+			y = $Y
 		}
 	}
 }
@@ -1151,7 +1151,7 @@ function Invoke-CdpInputClickElement {
 		$PixelY = $CdpPage.PageInfo.BoxModel.content[1] + ($CdpPage.PageInfo.BoxModel.height / 2) + $OffsetY
 	}
 
-	$Command = [CdpCommandInput]::dispatchMouseEvent($CdpPage.TargetInfo.SessionId, 'mousePressed', $PixelX, $PixelY, 'left')
+	$Command = Get-Input.dispatchMouseEvent $SessionId 'mousePressed' $PixelX $PixelY 'left'
 	$Command.params.clickCount = $Click
 	$Server.SendCommand($Command)
 	$Command.params.type = 'mouseReleased'
@@ -1177,7 +1177,7 @@ function Invoke-CdpInputSendKeys {
 		[string]$Keys
 	)
 
-	$Command = [CdpCommandInput]::dispatchKeyEvent($SessionId, $null)
+	$Command = Get-Input.DispatchKeyEvent $SessionId $null
 	$Keys.ToCharArray().ForEach({
 			$Command.params.text = $_
 			$Server.SendCommand($Command)
