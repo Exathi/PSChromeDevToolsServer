@@ -386,7 +386,6 @@ class CdpEventHandler {
 		while ($null -eq $Page) {
 			if (!$this.SharedState.Sessions.TryGetValue($SessionId, [ref]$Page)) {
 				Start-Sleep -Milliseconds 50
-				# Write-Host ('getting targetid')
 			}
 		}
 		return $Page
@@ -397,7 +396,6 @@ class CdpEventHandler {
 		while ($null -eq $Page) {
 			if (!$this.SharedState.Targets.TryGetValue($TargetId, [ref]$Page)) {
 				Start-Sleep -Milliseconds 50
-				# Write-Host ('getting targetid')
 			}
 		}
 		return $Page
@@ -639,7 +637,6 @@ class CdpServer {
 		while ($null -eq $Page) {
 			if (!$this.SharedState.Sessions.TryGetValue($SessionId, [ref]$Page)) {
 				Start-Sleep -Milliseconds 50
-				# Write-Host ('server getting sessionid')
 			}
 		}
 		return $Page
@@ -650,7 +647,6 @@ class CdpServer {
 		while ($null -eq $Page) {
 			if (!$this.SharedState.Targets.TryGetValue($TargetId, [ref]$Page)) {
 				Start-Sleep -Milliseconds 50
-				# Write-Host ('server getting sessionid')
 			}
 		}
 		return $Page
