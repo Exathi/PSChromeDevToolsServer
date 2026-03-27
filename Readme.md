@@ -70,13 +70,10 @@ $CdpServer.StartMessageReader()
 $CdpServer.StartMessageProcessor()
 $CdpServer.StartMessageWriter()
 
-# These classes contain methods to return commands as a hashtable for the respective cdp methods
-# Ex [CdpCommandDom]::describeNode()
-[CdpCommandDom]
-[CdpCommandInput]
-[CdpCommandPage]
-[CdpCommandRuntime]
-[CdpCommandTarget]
+# Classes with static methods do not work well in runspaces in Windows Powershell.
+# They have been replaced with functions with name Get-Domain.methodName
+# Ex Get-Dom.describeNode
+
 
 ```
 
