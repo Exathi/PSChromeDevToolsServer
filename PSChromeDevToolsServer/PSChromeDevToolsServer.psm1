@@ -653,7 +653,13 @@ class CdpServer {
 	}
 
 	[void]SendRuntimeEvaluate([string]$SessionId, [string]$Expression) {
-		$JsonCommand = Get-Runtime.evaluate $SessionId $Expression
+		$JsonCommand = @{
+			method = 'Runtime.evaluate'
+			sessionId = $SessionId
+			params = @{
+				expression = $Expression
+			}
+		}
 		$this.SendCommand($JsonCommand)
 	}
 
