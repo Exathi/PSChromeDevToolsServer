@@ -7,7 +7,7 @@ $BrowserPath = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
 
 $Server = Start-CdpServer -StartPage $UriBuilder.Uri.AbsoluteUri -UserDataDir $UserDataDir -BrowserPath $BrowserPath -Debug
 
-$CdpPage = New-CdpPage -Server $Server -Url 'https://www.selenium.dev/selenium/web/single_text_input.html' -NewWindow
+$CdpPage = New-CdpPage -Server $Server -Url 'about:blank' -NewWindow
 Invoke-CdpPageNavigate -Server $Server -SessionId $CdpPage.TargetInfo.SessionId -Url 'https://www.selenium.dev/selenium/web/single_text_input.html'
 Invoke-CdpInputClickElement -Server $Server -SessionId $CdpPage.TargetInfo.SessionId -Selector 'document.querySelector("[id=textInput]")' -Click 1
 Invoke-CdpInputSendKeys -Server $Server -SessionId $CdpPage.TargetInfo.SessionId -Keys 'Hello World'

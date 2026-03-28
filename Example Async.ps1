@@ -5,8 +5,8 @@ $UriBuilder = [System.UriBuilder]::new($StartPage)
 $UserDataDir = 'D:\The Testing Folder\Edge\TestUserData'
 $BrowserPath = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
 
-# If there are not enough runspaces in the pool they will be queued.
-# If all runspaces are exhausted with StartMessageProcessor/StartMessageWriter the $Async will never run.
+# If there are not enough runspaces in the pool, the scriptblocks in $Async will be queued.
+# If all runspaces are exhausted with StartMessageProcessor/StartMessageWriter, the $Async will never run.
 $Server = Start-CdpServer -StartPage $UriBuilder.Uri.AbsoluteUri -UserDataDir $UserDataDir -BrowserPath $BrowserPath -AdditionalThreads 4
 
 $TestClickType = {
@@ -15,7 +15,7 @@ $TestClickType = {
     # We use -NewWindow because sometimes inputs do not register to a tab that is not active.
     # It works if tabs are on separate windows.
     # Alternatively use javascript.click()
-    $CdpPage = New-CdpPage -Server $Server -Url 'https://www.selenium.dev/selenium/web/single_text_input.html' -NewWindow
+    $CdpPage = New-CdpPage -Server $Server -Url 'about:blank' -NewWindow
     Invoke-CdpPageNavigate -Server $Server -SessionId $CdpPage.TargetInfo.SessionId -Url 'https://www.selenium.dev/selenium/web/single_text_input.html'
     Invoke-CdpInputClickElement -Server $Server -SessionId $CdpPage.TargetInfo.SessionId -Selector 'document.querySelector("[id=textInput]")' -Click 1
     Invoke-CdpInputSendKeys -Server $Server -SessionId $CdpPage.TargetInfo.SessionId -Keys 'Hello World'
