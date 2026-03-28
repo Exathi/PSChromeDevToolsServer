@@ -960,9 +960,13 @@ function Start-CdpServer {
 		[object]$StreamOutput
 	)
 
+	$LockFile = Join-Path -Path $UserDataDir -ChildPath 'lockfile'
+	if (Test-Path -Path $LockFile -PathType Leaf) { throw 'Browser is already open. Please close it and run Start-CdpServer again.' }
+
 	# $Server = [CdpServer]::new($StartPage, $UserDataDir, $BrowserPath, $AdditionalThreads, $Callbacks)
 	$ConsoleHost = if ($StreamOutput) { $StreamOutput } else { (Get-Host) }
 	$Server = New-UnboundClassInstance CdpServer -arguments $StartPage, $UserDataDir, $BrowserPath, $ConsoleHost, $AdditionalThreads, $Callbacks
+
 	if ($PSBoundParameters.ContainsKey('Debug')) {
 		$Server.SharedState.DebugPreference = 'Continue'
 	}
