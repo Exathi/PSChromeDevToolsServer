@@ -38,7 +38,6 @@ $OnBindingCalled = {
 }.Ast.GetScriptBlock()
 
 # Reenable buttons on page refresh after Runtime is enabled again.
-# Otherwise button may be clicked before AddBinding adds 'PowershellServer' so window.PowershellServer(payload); is invalid until then.
 $OnExecutionContextCreated = {
 	param($Response)
 	Write-Verbose "Testing access: This.SharedState=$($null -ne $this.SharedState), This.EventHandler=$($null -ne $this.SharedState.EventHandler)"
