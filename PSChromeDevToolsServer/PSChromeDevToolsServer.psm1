@@ -674,15 +674,15 @@ class CdpServer {
 			Start-Sleep -Milliseconds 50
 		}
 
-		$SessionId = $null
-		while ($null -eq $SessionId) {
-			$null = $this.SharedState.Targets.Values[0].TargetInfo.TryGetValue('SessionId', [ref]$SessionId)
-			Start-Sleep -Milliseconds 50
+		$TargetCreatedEvents = $this.SharedState.MessageHistory.GetEnumerator() | Sort-Object -Property Key | Where-Object {
+			$_.Value.method -eq 'Target.targetCreated'
 		}
 
-		$JsonCommand = Get-Page.enable $SessionId
+		$AvailableTargets = $this.SharedState.Targets.GetEnumerator() | Where-Object { $_.Value.TargetId -in $TargetCreatedEvents.Value.params.targetInfo.targetId }
+
+		$JsonCommand = Get-Page.enable $AvailableTargets[0].Value.TargetInfo.SessionId
 		$this.SendCommand($JsonCommand)
-		$JsonCommand = Get-Runtime.enable $SessionId
+		$JsonCommand = Get-Runtime.enable $AvailableTargets[0].Value.TargetInfo.SessionId
 		$this.SendCommand($JsonCommand, $true)
 	}
 
