@@ -14,17 +14,18 @@ $TestClickType = {
     # MUST BE WINDOWED NOT FULLSCREENED
     # We use -NewWindow because sometimes inputs do not register to a tab that is not active.
     # It works if tabs are on separate windows.
-    # Alternatively use javascript.click()
+    # Alternatively use javascript.click()/value
     $CdpPage = New-CdpPage -Server $Server -Url 'about:blank' -NewWindow
     Invoke-CdpPageNavigate -Server $Server -SessionId $CdpPage.TargetInfo.SessionId -Url 'https://www.selenium.dev/selenium/web/single_text_input.html'
-    Invoke-CdpInputClickElement -Server $Server -SessionId $CdpPage.TargetInfo.SessionId -Selector 'document.querySelector("[id=textInput]")' -Click 1
-    Invoke-CdpInputSendKeys -Server $Server -SessionId $CdpPage.TargetInfo.SessionId -Keys 'Hello World'
+    Invoke-CdpInputClickElement -Server $Server -SessionId $CdpPage.TargetInfo.SessionId -Selector 'document.querySelector("[id=textInput]").value="H"' # page has weird loading delay bypassed by setting the box in javascript first
+    Invoke-CdpInputSendKeys -Server $Server -SessionId $CdpPage.TargetInfo.SessionId -Keys 'ello World'
+    Start-Sleep -Seconds 1
     Invoke-CdpInputClickElement -Server $Server -SessionId $CdpPage.TargetInfo.SessionId -Selector 'document.querySelector("#textInput")' -Click 3 -TopLeft
     Invoke-CdpInputSendKeys -Server $Server -SessionId $CdpPage.TargetInfo.SessionId -Keys 'PSChromeDevToolsServer'
     'Finished TestClickType'
 
     $CdpPage2 = New-CdpPage -Server $Server -Url 'https://www.selenium.dev/selenium/web/click_frames.html' -BrowserContextId $CdpPage.BrowserContextId
-    Invoke-CdpInputClickElement -Server $Server -SessionId $CdpPage2.TargetInfo.SessionId -Selector 'document.querySelector("frameset frame").contentDocument.querySelector("[id=source]").contentDocument.querySelector("[id=otherframe]")' -Click 1
+    Invoke-CdpInputClickElement -Server $Server -SessionId $CdpPage2.TargetInfo.SessionId -Selector 'document.querySelector("frameset frame").contentDocument.querySelector("[id=source]").contentDocument.querySelector("[id=otherframe]").click()'
     'Finished TestClickFrame'
 }.Ast.GetScriptBlock()
 
