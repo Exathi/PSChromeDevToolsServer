@@ -174,7 +174,8 @@ class CdpEventHandler {
 
 	hidden [void]FrameAttached($Response) {
 		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
-		$null = $CdpPage.Frames.GetOrAdd($Response.params.frameId, [CdpFrame]::new($Response.params.frameId, $Response.sessionId, $Response.params.parentFrameId))
+		$Frame = $CdpPage.Frames.GetOrAdd($Response.params.frameId, [CdpFrame]::new($Response.params.frameId, $Response.sessionId, $Response.params.parentFrameId))
+		$Frame.ParentFrameId = $Response.params.parentFrameId
 
 		$Callback = $this.SharedState.Callbacks['OnFrameAttached']
 		if ($Callback) {
@@ -206,9 +207,9 @@ class CdpEventHandler {
 	hidden [void]LoadEventFired($Response) {
 		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
 		$CdpPage.LoadingEvents.AddOrUpdate('LoadEventFired', 1, { param($Key, $OldValue) $OldValue + 1 })
-		if ($CdpPage.LoadingEvents.LoadEventFired -eq $CdpPage.LoadingEvents.DomContentEventFired) {
-			$CdpPage.LoadingEvents.AddOrUpdate('IsLoading', $false, { param($Key, $OldValue) $false })
-		}
+		# if ($CdpPage.LoadingEvents.LoadEventFired -eq $CdpPage.LoadingEvents.DomContentEventFired) {
+		$CdpPage.LoadingEvents.AddOrUpdate('IsLoading', $false, { param($Key, $OldValue) $false })
+		# }
 		$Callback = $this.SharedState.Callbacks['OnLoadEventFired']
 		if ($Callback) {
 			$Callback.Invoke($Response)
@@ -228,15 +229,12 @@ class CdpEventHandler {
 		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
 		if ($CdpPage.TargetId -eq $Response.params.frameId) {
 			$CdpPage.LoadingEvents.AddOrUpdate('FrameStartedLoading', 1, { param($Key, $OldValue) $OldValue + 1 })
+			$CdpPage.LoadingEvents.AddOrUpdate('IsLoading', $true, { param($Key, $OldValue) $true })
 		} else {
-			$Frame = $null
-			while (!$CdpPage.Frames.TryGetValue($Response.params.frameId, [ref]$Frame)) {
-				Start-Sleep -Milliseconds 50
-			}
+			# this event can be emitted before a Page.frameAttached or Runtime.executionContextCreated...?
+			$Frame = $CdpPage.Frames.GetOrAdd($Response.params.frameId, [CdpFrame]::new($Response.params.frameId, $Response.sessionId))
 			$Frame.LoadingEvents.AddOrUpdate('FrameStartedLoading', 1, { param($Key, $OldValue) $OldValue + 1 })
 			$Frame.LoadingEvents.AddOrUpdate('IsLoading', $true, { param($Key, $OldValue) $true })
-			# Write-Debug ('Start CdpPage: ({0})' -f ($CdpPage | ConvertTo-Json -Depth 10))
-			# Write-Debug ('Start Frame: ({0})' -f ($Frame | ConvertTo-Json -Depth 10))
 		}
 
 		$Callback = $this.SharedState.Callbacks['OnFrameStartedLoading']
@@ -246,8 +244,8 @@ class CdpEventHandler {
 	}
 
 	hidden [void]FrameStartedNavigating($Response) {
-		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
-		$CdpPage.LoadingEvents.AddOrUpdate('IsLoading', $true, { param($Key, $OldValue) $true })
+		# $CdpPage = $this.GetPageBySessionId($Response.sessionId)
+		# $CdpPage.LoadingEvents.AddOrUpdate('IsLoading', $true, { param($Key, $OldValue) $true })
 		# Write-Debug ('Frame Started Navigating: ({0})' -f ($Response | ConvertTo-Json -Depth 10))
 
 		$Callback = $this.SharedState.Callbacks['OnFrameStartedNavigating']
@@ -260,15 +258,12 @@ class CdpEventHandler {
 		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
 		if ($CdpPage.TargetId -eq $Response.params.frameId) {
 			$CdpPage.LoadingEvents.AddOrUpdate('FrameStoppedLoading', 1, { param($Key, $OldValue) $OldValue + 1 })
+			$CdpPage.LoadingEvents.AddOrUpdate('IsLoading', $false, { param($Key, $OldValue) $false })
 		} else {
-			$Frame = $null
-			while (!$CdpPage.Frames.TryGetValue($Response.params.frameId, [ref]$Frame)) {
-				Start-Sleep -Milliseconds 50
-			}
+			# this event can be emitted before a Page.frameAttached or Runtime.executionContextCreated...?
+			$Frame = $CdpPage.Frames.GetOrAdd($Response.params.frameId, [CdpFrame]::new($Response.params.frameId, $Response.sessionId))
 			$Frame.LoadingEvents.AddOrUpdate('FrameStoppedLoading', 1, { param($Key, $OldValue) $OldValue + 1 })
 			$Frame.LoadingEvents.AddOrUpdate('IsLoading', $false, { param($Key, $OldValue) $false })
-			# Write-Debug ('Stop CdpPage: ({0})' -f ($CdpPage | ConvertTo-Json -Depth 10))
-			# Write-Debug ('Stop Frame: ({0})' -f ($Frame | ConvertTo-Json -Depth 10))
 		}
 
 		$Callback = $this.SharedState.Callbacks['OnFrameStoppedLoading']
