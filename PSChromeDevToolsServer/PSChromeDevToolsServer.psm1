@@ -1269,7 +1269,7 @@ async function awaitMultiplePromises() {
 	const displayBox = document.querySelector("[id=textInput]");
 	displayBox.value = results;
 
-	return 'AwaitPromise'
+	return 'Promise was awaited.'
 }
 
 awaitMultiplePromises();
