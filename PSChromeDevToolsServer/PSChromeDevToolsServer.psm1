@@ -380,7 +380,7 @@ class CdpEventHandler {
 		$Page = $null
 		while ($null -eq $Page) {
 			if (!$this.SharedState.Sessions.TryGetValue($SessionId, [ref]$Page)) {
-				Start-Sleep -Milliseconds 50
+				Start-Sleep -Milliseconds 1
 			}
 		}
 		return $Page
@@ -390,7 +390,7 @@ class CdpEventHandler {
 		$Page = $null
 		while ($null -eq $Page) {
 			if (!$this.SharedState.Targets.TryGetValue($TargetId, [ref]$Page)) {
-				Start-Sleep -Milliseconds 50
+				Start-Sleep -Milliseconds 1
 			}
 		}
 		return $Page
@@ -477,7 +477,7 @@ class CdpServer {
 		$this.ChromeProcess = [System.Diagnostics.Process]::Start($StartInfo)
 
 		while (!$this.SharedState.IO.PipeWriter.IsConnected -and !$this.SharedState.IO.PipeReader.IsConnected) {
-			Start-Sleep -Milliseconds 50
+			Start-Sleep -Milliseconds 1
 		}
 
 		$this.SharedState.IO.PipeWriter.DisposeLocalCopyOfClientHandle()
@@ -535,19 +535,18 @@ class CdpServer {
 							$LastCommandId = $Response.id
 						} else {
 							while (!$SharedState.TryGetValue('CommandId', [ref]$LastCommandId)) {
-								Start-Sleep -Milliseconds 50
+								Start-Sleep -Milliseconds 1
 							}
 						}
 
 						do {
 							$SucessfullyAdded = if ($Response.id) {
 								$SharedState.MessageHistory.TryAdd([version]::new($LastCommandId, 0), $Response)
-
-								if (!$SucessfullyAdded) {
-									Start-Sleep -Milliseconds 50
-								}
 							} else {
 								$SharedState.MessageHistory.TryAdd([version]::new($LastCommandId, $ResponseIndex++), $Response)
+							}
+							if (!$SucessfullyAdded) {
+								Start-Sleep -Milliseconds 1
 							}
 						} while (!$SucessfullyAdded)
 
@@ -556,7 +555,7 @@ class CdpServer {
 						# $End = Get-Date
 						# Write-Debug ('{0} {1} Processing Time: {2} ms' -f $Response.id, $Response.method, ($End - $Start).TotalMilliseconds)
 					}
-					Start-Sleep -Seconds $IdleTime
+					Start-Sleep -Milliseconds $IdleTime
 				}
 			}
 		)
@@ -576,7 +575,7 @@ class CdpServer {
 					while ($SharedState.IO.CommandQueue.TryDequeue([ref]$CommandBytes)) {
 						$SharedState.IO.PipeWriter.Write($CommandBytes, 0, $CommandBytes.Length)
 					}
-					Start-Sleep -Seconds $IdleTime
+					Start-Sleep -Milliseconds $IdleTime
 				}
 			}
 		)
@@ -587,7 +586,7 @@ class CdpServer {
 		$this.SharedState.IO.PipeReader.Dispose()
 		$this.SharedState.IO.PipeWriter.Dispose()
 		while ($this.SharedState.IO.PipeReader.IsConnected -or $this.SharedState.IO.PipeWriter.IsConnected) {
-			Start-Sleep -Milliseconds 50
+			Start-Sleep -Milliseconds 1
 		}
 		if ($this.Threads.MessageReaderHandle) {
 			$this.Threads.MessageReader.EndInvoke($this.Threads.MessageReaderHandle)
@@ -620,7 +619,7 @@ class CdpServer {
 		if ($WaitForResponse) {
 			$AwaitedMessage = $null
 			while (!$this.SharedState.MessageHistory.TryGetValue([version]::new($CommandId, 0), [ref]$AwaitedMessage)) {
-				Start-Sleep -Milliseconds 50
+				Start-Sleep -Milliseconds 1
 			}
 			return $AwaitedMessage
 		}
@@ -631,7 +630,7 @@ class CdpServer {
 		$Page = $null
 		while ($null -eq $Page) {
 			if (!$this.SharedState.Sessions.TryGetValue($SessionId, [ref]$Page)) {
-				Start-Sleep -Milliseconds 50
+				Start-Sleep -Milliseconds 1
 			}
 		}
 		return $Page
@@ -641,7 +640,7 @@ class CdpServer {
 		$Page = $null
 		while ($null -eq $Page) {
 			if (!$this.SharedState.Targets.TryGetValue($TargetId, [ref]$Page)) {
-				Start-Sleep -Milliseconds 50
+				Start-Sleep -Milliseconds 1
 			}
 		}
 		return $Page
@@ -666,7 +665,7 @@ class CdpServer {
 		$this.SendCommand($JsonCommand)
 
 		while ($this.SharedState.Targets.Count -eq 0) {
-			Start-Sleep -Milliseconds 50
+			Start-Sleep -Milliseconds 1
 		}
 
 		$TargetCreatedEvents = $this.SharedState.MessageHistory.GetEnumerator() | Sort-Object -Property Key | Where-Object {
@@ -1031,7 +1030,6 @@ function New-CdpPage {
 	if ($NewWindow) {
 		$Command = Get-Target.createBrowserContext
 		$Response = $Server.SendCommand($Command, $true)
-		$Server.SharedState.BrowserContexts.Add($Response.result.browserContextId)
 	}
 
 	$Command = Get-Target.createTarget $Url
@@ -1042,15 +1040,15 @@ function New-CdpPage {
 		$Command.params.browserContextId = $BrowserContextId #$Server.SharedState.BrowserContexts[$BrowserContextIndex]
 	}
 	$Response = $Server.SendCommand($Command, $true)
-
 	$CdpPage = $Server.GetPageByTargetId($Response.result.targetId)
 	$SessionId = $null
 	while ($null -eq $SessionId) {
 		$null = $CdpPage.TargetInfo.TryGetValue('SessionId', [ref]$SessionId)
+		Start-Sleep -Milliseconds 1
 	}
 
 	$Command = Get-Page.enable $SessionId
-	$Server.SendCommand($Command)
+	$null = $Server.SendCommand($Command, $true)
 	$Command = Get-Runtime.enable $SessionId
 	$null = $Server.SendCommand($Command, $true)
 
@@ -1108,7 +1106,7 @@ function Invoke-CdpPageNavigate {
 	$null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$NewRuntimeUniqueId)
 	if ($null -ne $OldRuntimeUniqueId) {
 		while ($NewRuntimeUniqueId -eq $OldRuntimeUniqueId) {
-			Start-Sleep -Milliseconds 50
+			Start-Sleep -Milliseconds 1
 			$null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$NewRuntimeUniqueId)
 		}
 	}
@@ -1116,13 +1114,13 @@ function Invoke-CdpPageNavigate {
 	$IsLoading = $null
 	$null = $CdpPage.LoadingEvents.TryGetValue('IsLoading', [ref]$IsLoading)
 	while ($IsLoading) {
-		Start-Sleep -Milliseconds 50
+		Start-Sleep -Milliseconds 1
 		$null = $CdpPage.LoadingEvents.TryGetValue('IsLoading', [ref]$IsLoading)
 	}
 
 	if ($CdpPage.Frames.Count -eq 0) { return }
 	while ([System.Linq.Enumerable]::Sum([int[]]@($CdpPage.Frames.Values.LoadingEvents.IsLoading)) -gt 0) {
-		Start-Sleep -Milliseconds 50
+		Start-Sleep -Milliseconds 1
 	}
 
 	$Command = Get-Page.getFrameTree $SessionId
