@@ -787,6 +787,13 @@ function Get-Page.navigate {
 		}
 	}
 }
+function Get-Page.getFrameTree {
+	param($SessionId)
+	@{
+		method = 'Page.getFrameTree'
+		sessionId = $SessionId
+	}
+}
 
 function Get-Runtime.addBinding {
 	param($SessionId, $Name)
@@ -908,6 +915,16 @@ function Get-Target.setDiscoverTargets {
 				},
 				@{}
 			)
+		}
+	}
+}
+
+function Get-CdpFrames {
+	param($Tree)
+	if ($Tree.frame) { $Tree.frame }
+	if ($Tree.childFrames) {
+		foreach ($Child in $Tree.childFrames) {
+			Get-CdpFrames $Child
 		}
 	}
 }
@@ -1040,9 +1057,29 @@ function New-CdpPage {
 	$RuntimeUniqueId = $null
 	while ($null -eq $RuntimeUniqueId) {
 		$null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$RuntimeUniqueId)
+		Start-Sleep -Milliseconds 1
+	}
+
+	$IsLoading = $null
+	$null = $CdpPage.LoadingEvents.TryGetValue('IsLoading', [ref]$IsLoading)
+	while ($IsLoading) {
+		Start-Sleep -Milliseconds 1
+		$null = $CdpPage.LoadingEvents.TryGetValue('IsLoading', [ref]$IsLoading)
 	}
 
 	$CdpPage
+
+	if ($CdpPage.Frames.Count -eq 0) { return }
+	while ([System.Linq.Enumerable]::Sum([int[]]@($CdpPage.Frames.Values.LoadingEvents.IsLoading)) -gt 0) {
+		Start-Sleep -Milliseconds 1
+	}
+
+	$Command = Get-Page.getFrameTree $SessionId
+	do {
+		$Response = $Server.SendCommand($Command, $true)
+		$Tree = Get-CdpFrames $Response.result.frameTree
+		$HasAllFrames = $CdpPage.Frames.ToArray().Key | Where-Object { $_ -in $Tree.id }
+	} while ($HasAllFrames.Count -ne $CdpPage.Frames.Count)
 }
 
 function Invoke-CdpPageNavigate {
@@ -1087,6 +1124,13 @@ function Invoke-CdpPageNavigate {
 	while ([System.Linq.Enumerable]::Sum([int[]]@($CdpPage.Frames.Values.LoadingEvents.IsLoading)) -gt 0) {
 		Start-Sleep -Milliseconds 50
 	}
+
+	$Command = Get-Page.getFrameTree $SessionId
+	do {
+		$Response = $Server.SendCommand($Command, $true)
+		$Tree = Get-CdpFrames $Response.result.frameTree
+		$HasAllFrames = $CdpPage.Frames.ToArray().Key | Where-Object { $_ -in $Tree.id }
+	} while ($HasAllFrames.Count -ne $CdpPage.Frames.Count)
 }
 
 function Invoke-CdpInputClickElement {
