@@ -413,19 +413,15 @@ class CdpServer {
 	}
 	[System.Collections.Concurrent.ConcurrentDictionary[string, string]]$CommandHistory = [System.Collections.Concurrent.ConcurrentDictionary[string, string]]::new()
 
-	CdpServer($StartPage, $UserDataDir, $BrowserPath, $StreamOutput) {
-		$this.Init($StartPage, $UserDataDir, $BrowserPath, $StreamOutput, 0, $null)
+	CdpServer([string]$BrowserPath, [object]$StreamOutput, [string[]]$BrowserArgs, [int]$AdditionalThreads, [hashtable]$Callbacks) {
+		$this.Init($BrowserPath, $StreamOutput, $BrowserArgs, $AdditionalThreads, $Callbacks, $null)
 	}
 
-	CdpServer($StartPage, $UserDataDir, $BrowserPath, $StreamOutput, $AdditionalThreads) {
-		$this.Init($StartPage, $UserDataDir, $BrowserPath, $StreamOutput, 0, $null)
+	CdpServer([string]$BrowserPath, [object]$StreamOutput, [string[]]$BrowserArgs, [int]$AdditionalThreads, [hashtable]$Callbacks, [System.Management.Automation.Runspaces.InitialSessionState]$State) {
+		$this.Init($BrowserPath, $StreamOutput, $BrowserArgs, $AdditionalThreads, $Callbacks, $State)
 	}
 
-	CdpServer($StartPage, $UserDataDir, $BrowserPath, $StreamOutput, $AdditionalThreads, $Callbacks) {
-		$this.Init($StartPage, $UserDataDir, $BrowserPath, $StreamOutput, $AdditionalThreads, $Callbacks)
-	}
-
-	hidden [void]Init($StartPage, $UserDataDir, $BrowserPath, $StreamOutput, $AdditionalThreads, $Callbacks) {
+	hidden [void]Init([string]$BrowserPath, [object]$StreamOutput, [string[]]$BrowserArgs, [int]$AdditionalThreads, [hashtable]$Callbacks, [System.Management.Automation.Runspaces.InitialSessionState]$State) {
 		$this.SharedState = [System.Collections.Generic.Dictionary[string, object]]::new()
 
 		$this.SharedState.IO = @{
@@ -453,7 +449,10 @@ class CdpServer {
 
 		$this.SharedState.EventHandler = New-UnboundClassInstance -type ([CdpEventHandler]) -arguments @($this.SharedState) #[CdpEventHandler]::new($this.SharedState)
 
-		$State = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+		if (!$State) {
+			$State = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+		}
+
 		$State.ImportPSModule("$PSScriptRoot\PSChromeDevToolsServer")
 		$RunspaceSharedState = [System.Management.Automation.Runspaces.SessionStateVariableEntry]::new('SharedState', $this.SharedState, $null)
 		$State.Variables.Add($RunspaceSharedState)
@@ -461,13 +460,8 @@ class CdpServer {
 		$this.RunspacePool = [RunspaceFactory]::CreateRunspacePool(3, 3 + $AdditionalThreads, $State, $StreamOutput)
 		$this.RunspacePool.Open()
 
-		$BrowserArgs = @(
-			('--user-data-dir="{0}"' -f $UserDataDir)
-			'--no-first-run'
-			'--remote-debugging-pipe'
-			('--remote-debugging-io-pipes={0},{1}' -f $this.SharedState.IO.PipeWriter.GetClientHandleAsString(), $this.SharedState.IO.PipeReader.GetClientHandleAsString())
-			$StartPage
-		) | Where-Object { $_ -ne '' -and $_ -ne $null }
+		if (($BrowserArgs -like '--user-data-dir*').Count -ne 1) { throw '--user-data-dir is required.' }
+		$BrowserArgs += (' --remote-debugging-pipe --remote-debugging-io-pipes={0},{1}' -f $this.SharedState.IO.PipeWriter.GetClientHandleAsString(), $this.SharedState.IO.PipeReader.GetClientHandleAsString())
 
 		$StartInfo = [System.Diagnostics.ProcessStartInfo]::new()
 		$StartInfo.FileName = $BrowserPath
@@ -937,11 +931,15 @@ function Get-CdpFrames {
 function Start-CdpServer {
 	<#
 		.SYNOPSIS
-		Starts the CdpServer by launching the browser process, initializing the event handlers, and starting the message reader, processor, and writer threads
+		Starts the CdpServer by launching the browser process, initializing the event handlers, and starting the message reader, processor, and writer threads.
 		.PARAMETER StartPage
-		The URL of the page to load when the browser starts
+		The URL of the page to load when the browser starts.
 		.PARAMETER UserDataDir
-		The directory to use for the browser's user data profile. This should be a unique directory for each instance of the server to avoid conflicts
+		The directory to use for the browser's user data profile. This should be a unique directory for each instance of the server to avoid conflicts.
+		.PARAMETER BrowserArgs
+		Commandline args for chromium.
+		Must NOT include --user-data-dir=. This is added by UserDataDir parameter.
+		Must NOT include --remote-debugging-pipe and --remote-debugging-io-pipe if using pipes.
 		.PARAMETER BrowserPath
 		The path to the browser executable to launch
 		.PARAMETER AdditionalThreads
@@ -959,15 +957,22 @@ function Start-CdpServer {
 		.PARAMETER DisableDefaultEvents
 		This stops targets from being auto attached and auto discovered.
 		.PARAMETER StreamOutput
-		This is the $Host/Console which runspace streams will output to.
+		This is the (Get-Host)/$Host Console which runspacepool streams will output to.
 	#>
 	[CmdletBinding()]
 	param (
 		[Parameter(Mandatory)]
+		[Parameter(ParameterSetName = 'DefaultArgs')]
 		[string]$StartPage,
 		[Parameter(Mandatory)]
+		[Parameter(ParameterSetName = 'DefaultArgs')]
+		[Parameter(ParameterSetName = 'UserArgs')]
 		[ValidateScript({ Test-Path $_ -PathType Container -IsValid })]
 		[string]$UserDataDir,
+		[Parameter(ParameterSetName = 'UserArgs')]
+		[string[]]$BrowserArgs,
+		[Parameter(ParameterSetName = 'UserArgs')]
+		[System.Management.Automation.Runspaces.InitialSessionState]$State,
 		[Parameter(Mandatory)]
 		[string]$BrowserPath,
 		[ValidateScript({ $_ -ge 0 })]
@@ -980,9 +985,18 @@ function Start-CdpServer {
 	$LockFile = Join-Path -Path $UserDataDir -ChildPath 'lockfile'
 	if (Test-Path -Path $LockFile -PathType Leaf) { throw 'Browser is already open. Please close it and run Start-CdpServer again.' }
 
-	# $Server = [CdpServer]::new($StartPage, $UserDataDir, $BrowserPath, $AdditionalThreads, $Callbacks)
+	if ($PSCmdlet.ParameterSetName -eq 'DefaultArgs') {
+		$BrowserArgs = @(
+			('--user-data-dir="{0}"' -f $UserDataDir)
+			'--no-first-run'
+			$StartPage
+		) | Where-Object { $_ -ne '' -and $null -ne $_ }
+	} else {
+		$BrowserArgs += (' --user-data-dir="{0}"' -f $UserDataDir)
+	}
+
 	$ConsoleHost = if ($StreamOutput) { $StreamOutput } else { (Get-Host) }
-	$Server = New-UnboundClassInstance CdpServer -arguments $StartPage, $UserDataDir, $BrowserPath, $ConsoleHost, $AdditionalThreads, $Callbacks
+	$Server = New-UnboundClassInstance CdpServer -arguments $BrowserPath, $ConsoleHost, $BrowserArgs, $AdditionalThreads, $Callbacks, $State
 
 	if ($PSBoundParameters.ContainsKey('Debug')) {
 		$Server.SharedState.DebugPreference = 'Continue'
