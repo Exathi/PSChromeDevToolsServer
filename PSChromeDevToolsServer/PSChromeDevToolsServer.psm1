@@ -440,7 +440,6 @@ class CdpServer {
 		$this.SharedState.Targets = [System.Collections.Concurrent.ConcurrentDictionary[string, CdpPage]]::new()
 		$this.SharedState.Sessions = [System.Collections.Concurrent.ConcurrentDictionary[string, CdpPage]]::new()
 		$this.SharedState.Callbacks = [System.Collections.Generic.Dictionary[string, scriptblock]]::new()
-		$this.SharedState.BrowserContexts = [System.Collections.Generic.List[string]]::new()
 
 		foreach ($Key in $Callbacks.Keys) {
 			$this.SharedState.Callbacks[$Key] = $Callbacks[$Key]
@@ -999,8 +998,6 @@ function Start-CdpServer {
 		$Server.EnableDefaultEvents()
 	}
 
-	$Server.SharedState.BrowserContexts.Add($Server.SharedState.Targets.Values[0].BrowserContextId)
-
 	$Server
 }
 
@@ -1044,7 +1041,7 @@ function New-CdpPage {
 		$Command.params.newWindow = $true
 		$Command.params.browserContextId = $Response.result.browserContextId
 	} else {
-		$Command.params.browserContextId = $BrowserContextId #$Server.SharedState.BrowserContexts[$BrowserContextIndex]
+		$Command.params.browserContextId = $BrowserContextId
 	}
 	$Response = $Server.SendCommand($Command, $true)
 	$CdpPage = $Server.GetPageByTargetId($Response.result.targetId)
