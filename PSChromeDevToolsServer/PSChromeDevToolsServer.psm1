@@ -662,12 +662,7 @@ class CdpServer {
 			Start-Sleep -Milliseconds 1
 		}
 
-		$TargetCreatedEvents = $this.SharedState.MessageHistory.GetEnumerator() | Sort-Object -Property Key | Where-Object {
-			$_.Value.method -eq 'Target.targetCreated'
-		}
-
-		$AvailableTargets = $this.SharedState.Targets.GetEnumerator() | Where-Object { $_.Value.TargetId -in $TargetCreatedEvents.Value.params.targetInfo.targetId }
-		$CdpPage = $this.GetPageByTargetId($AvailableTargets[0].Value.TargetId)
+		$CdpPage = $this.GetFirstAvailableCdpPage()
 		$SessionId = $null
 		while ($null -eq $SessionId) {
 			$CdpPage.TargetInfo.TryGetValue('SessionId', [ref]$SessionId)
@@ -695,6 +690,22 @@ class CdpServer {
 			@{Name = 'params'; Expression = { $_.Value.params } }
 		)
 		return $Events
+	}
+
+	[CdpPage]GetFirstAvailableCdpPage() {
+		$TargetCreatedEvents = $this.SharedState.MessageHistory.GetEnumerator() | Sort-Object -Property Key | Where-Object {
+			$_.Value.method -eq 'Target.targetCreated'
+		}
+
+		$AvailableTarget = foreach ($TargetId in $TargetCreatedEvents.Value.params.targetInfo.targetId) {
+			$Target = $this.SharedState.Targets.GetEnumerator() | Where-Object { $_.Value.TargetId -eq $TargetId }
+			$Target
+			if ($Target) { break }
+		}
+
+		if (!$AvailableTarget) { return $null }
+
+		return $this.GetPageByTargetId($AvailableTarget.Value.TargetId)
 	}
 
 	hidden [Delegate]CreateDelegate([System.Management.Automation.PSMethod]$Method) {
