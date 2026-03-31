@@ -1100,8 +1100,10 @@ function New-CdpPage {
 	do {
 		$Response = $Server.SendCommand($Command, $true)
 		$Tree = Get-CdpFrames $Response.result.frameTree
-		$HasAllFrames = $CdpPage.Frames.ToArray().Key | Where-Object { $_ -in $Tree.id }
-	} while ($HasAllFrames.Count -ne $CdpPage.Frames.Count)
+		$AllFramesInTree = $CdpPage.Frames.ToArray().Key | Where-Object { $_ -in $Tree.id }
+		$FilteredTree = $Tree.id | Where-Object { $_ -ne $CdpPage.TargetId } # there is always the target frame in $Tree that isn't tracked in $Frames
+		$AllTreeInFrames = $FilteredTree | Where-Object { $_ -in $CdpPage.Frames.ToArray().Key }
+	} while ($AllFramesInTree.Count -ne $CdpPage.Frames.Count -or $AllTreeInFrames.Count -ne ($FilteredTree.Count))
 
 	while ([System.Linq.Enumerable]::Sum([int[]]@($CdpPage.Frames.Values.LoadingEvents.IsLoading)) -gt 0) {
 		Start-Sleep -Milliseconds 1
@@ -1150,8 +1152,10 @@ function Invoke-CdpPageNavigate {
 	do {
 		$Response = $Server.SendCommand($Command, $true)
 		$Tree = Get-CdpFrames $Response.result.frameTree
-		$HasAllFrames = $CdpPage.Frames.ToArray().Key | Where-Object { $_ -in $Tree.id }
-	} while ($HasAllFrames.Count -ne $CdpPage.Frames.Count)
+		$AllFramesInTree = $CdpPage.Frames.ToArray().Key | Where-Object { $_ -in $Tree.id }
+		$FilteredTree = $Tree.id | Where-Object { $_ -ne $CdpPage.TargetId } # there is always the target frame in $Tree that isn't tracked in $Frames
+		$AllTreeInFrames = $FilteredTree | Where-Object { $_ -in $CdpPage.Frames.ToArray().Key }
+	} while ($AllFramesInTree.Count -ne $CdpPage.Frames.Count -or $AllTreeInFrames.Count -ne ($FilteredTree.Count))
 
 	while ([System.Linq.Enumerable]::Sum([int[]]@($CdpPage.Frames.Values.LoadingEvents.IsLoading)) -gt 0) {
 		Start-Sleep -Milliseconds 1
