@@ -1190,7 +1190,8 @@ function Invoke-CdpInputClickElement {
 		[Parameter(ParameterSetName = 'Click')]
 		[int]$OffsetY = 0,
 		[Parameter(ParameterSetName = 'Click')]
-		[switch]$TopLeft
+		[switch]$TopLeft,
+		[switch]$BringToFront
 	)
 
 	$CdpPage = $Server.GetPageBySessionId($SessionId)
@@ -1228,8 +1229,10 @@ function Invoke-CdpInputClickElement {
 	$Command = Get-Input.dispatchMouseEvent $SessionId 'mousePressed' $PixelX $PixelY 'left'
 	$Command.params.clickCount = $Click
 
-	$CommandFront = Get-Page.bringToFront $SessionId
-	$null = $Server.SendCommand($CommandFront, $true)
+	if ($BringToFront) {
+		$CommandFront = Get-Page.bringToFront $SessionId
+		$null = $Server.SendCommand($CommandFront, $true)
+	}
 
 	$Server.SendCommand($Command)
 	$Command.params.type = 'mouseReleased'
@@ -1252,15 +1255,17 @@ function Invoke-CdpInputSendKeys {
 		[Parameter(Mandatory)]
 		[string]$SessionId,
 		[Parameter(Mandatory)]
-		[string]$Keys
+		[string]$Keys,
+		[switch]$BringToFront
 	)
 
 	$Command = Get-Input.DispatchKeyEvent $SessionId $null
-	$CommandFront = Get-Page.bringToFront $SessionId
-	$null = $Server.SendCommand($CommandFront, $true)
+	if ($BringToFront) {
+		$CommandFront = Get-Page.bringToFront $SessionId
+		$null = $Server.SendCommand($CommandFront, $true)
+	}
 	$Keys.ToCharArray().ForEach({
 			$Command.params.text = $_
-			# $null = $Server.SendCommand($CommandFront, $true)
 			$Server.SendCommand($Command)
 		}
 	)
