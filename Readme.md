@@ -1,5 +1,5 @@
 # PSChromeDevToolsServer - Powershell Browser Automation
-[![Static Badge](https://img.shields.io/badge/Powershell%20Gallery-0.2.0-blue)](https://www.powershellgallery.com/packages/PSChromeDevToolsServer/)
+[![Static Badge](https://img.shields.io/badge/Powershell%20Gallery-0.2.1-blue)](https://www.powershellgallery.com/packages/PSChromeDevToolsServer/)
 
 
 Automate any Chromium browser with Powershell with `--remote-debugging-pipe` and `--remote-debugging-io-pipe`. I still couldn't find any examples in 2026 that made use of these switches with dotnet without tapping into WinApi functions.
@@ -84,7 +84,7 @@ $CdpServer.StartMessageWriter()
 
 If the terminal closes or pipes lose connection, the browser will close. The browser is tied to the terminal.
 
-`Start-CdpServer -Verbose -Debug` will enable respective stream outputs to the main console.
+`Start-CdpServer -Verbose -Debug` will enable respective runspacepool stream outputs to the main console.
 
 `AnonymousPipeServerStream.Write()` requires a null byte to be sent at the end of the string to signal end of write.
 
@@ -99,4 +99,5 @@ Page events and Javascript are on by default for the first tab.
 ## Todo/Considerations
 
 Break up the file into smaller pieces.
+
 ValueFromPipeline/ValueFromPipelineByPropertyName support.
