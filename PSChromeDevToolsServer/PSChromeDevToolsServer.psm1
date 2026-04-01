@@ -87,25 +87,25 @@ class CdpPage {
 }
 
 class CdpFrame {
-	$FrameId
-	$ParentFrameId
-	$SessionId
-	$RuntimeUniqueId
+	[string]$FrameId
+	[string]$ParentFrameId
+	[string]$SessionId
+	[string]$RuntimeUniqueId
+
 	CdpFrame ($FrameId, $SessionId, $ParentFrameId) {
+		$this.Init($FrameId, $SessionId, $ParentFrameId)
+	}
+
+	CdpFrame ($FrameId, $SessionId) {
+		$this.Init($FrameId, $SessionId, $null)
+	}
+
+	hidden [void]Init($FrameId, $SessionId, $ParentFrameId) {
 		$this.LoadingEvents.FrameStartedLoading = 0
 		$this.LoadingEvents.FrameStoppedLoading = 0
 		$this.LoadingEvents.IsLoading = $false
 		$this.FrameId = $FrameId
 		$this.ParentFrameId = $ParentFrameId
-		$this.SessionId = $SessionId
-		$this.RuntimeUniqueId = $null
-	}
-	CdpFrame ($FrameId, $SessionId) {
-		$this.LoadingEvents.FrameStartedLoading = 0
-		$this.LoadingEvents.FrameStoppedLoading = 0
-		$this.LoadingEvents.IsLoading = $false
-		$this.FrameId = $FrameId
-		$this.ParentFrameId = $null
 		$this.SessionId = $SessionId
 		$this.RuntimeUniqueId = $null
 	}
