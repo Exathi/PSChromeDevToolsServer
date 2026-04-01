@@ -447,7 +447,7 @@ class CdpServer {
 			GetPageByTargetId = $this.CreateDelegate($this.GetPageByTargetId)
 		}
 
-		$this.SharedState.EventHandler = New-UnboundClassInstance -type ([CdpEventHandler]) -arguments @($this.SharedState) #[CdpEventHandler]::new($this.SharedState)
+		$this.SharedState.EventHandler = [CdpEventHandler]::new($this.SharedState) # New-UnboundClassInstance -type ([CdpEventHandler]) -arguments @($this.SharedState)
 
 		if (!$State) {
 			$State = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
