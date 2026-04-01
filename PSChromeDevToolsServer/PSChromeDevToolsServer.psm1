@@ -1,4 +1,8 @@
-# $global:DebugPreference = 'Continue'
+enum WaitForResponse {
+	None = 0
+	Message
+	CommandId
+}
 
 $script:Powershell = $null
 
@@ -60,12 +64,15 @@ class CdpPage {
 	[string]$Title
 	[string]$BrowserContextId
 	[int]$ProcessId
+	[object]$CdpServer
 
-	CdpPage($TargetId, $Url, $Title, $BrowserContextId) {
+	CdpPage($TargetId, $Url, $Title, $BrowserContextId, $CdpServer) {
 		$this.TargetId = $TargetId
 		$this.Url = $Url
 		$this.Title = $Title
 		$this.BrowserContextId = $BrowserContextId
+		$this.CdpServer = $CdpServer
+
 		$this.TargetInfo.SessionId = $null
 
 		$this.LoadingEvents.IsLoading = $false
@@ -283,7 +290,7 @@ class CdpEventHandler {
 
 	hidden [void]TargetCreated($Response) {
 		$Target = $Response.params.targetInfo
-		$CdpPage = [CdpPage]::new($Target.targetId, $Target.Url, $Target.Title, $Target.browserContextId)
+		$CdpPage = [CdpPage]::new($Target.targetId, $Target.Url, $Target.Title, $Target.browserContextId, $this.SharedState.Server)
 		$null = $this.SharedState.Targets.TryAdd($Target.targetId, $CdpPage)
 
 		$Callback = $this.SharedState.Callbacks['OnTargetCreated']
@@ -431,6 +438,7 @@ class CdpServer {
 			CommandQueue = [System.Collections.Concurrent.ConcurrentQueue[object]]::new()
 		}
 
+		$this.SharedState.Server = $this
 		$this.SharedState.MessageHistory = [System.Collections.Concurrent.ConcurrentDictionary[version, object]]::new()
 		$this.SharedState.CommandId = 0
 		$this.SharedState.Targets = [System.Collections.Concurrent.ConcurrentDictionary[string, CdpPage]]::new()
@@ -599,10 +607,10 @@ class CdpServer {
 	}
 
 	[void]SendCommand([hashtable]$Command) {
-		$this.SendCommand($Command, $false)
+		$this.SendCommand($Command, [WaitForResponse]::None)
 	}
 
-	[object]SendCommand([hashtable]$Command, [bool]$WaitForResponse) {
+	[object]SendCommand([hashtable]$Command, [WaitForResponse]$WaitForResponse) {
 		# This should be the only place where $this.SharedState.CommandId is incremented.
 		$CommandId = $this.SharedState.AddOrUpdate('CommandId', 1, { param($Key, $OldValue) $OldValue + 1 })
 		$null = $this.CommandHistory.TryAdd($CommandId, $Command.method)
@@ -610,14 +618,26 @@ class CdpServer {
 		$JsonCommand = $Command | ConvertTo-Json -Depth 10 -Compress
 		$CommandBytes = [System.Text.Encoding]::UTF8.GetBytes($JsonCommand) + 0
 		$this.SharedState.IO.CommandQueue.Enqueue($CommandBytes)
-		if ($WaitForResponse) {
-			$AwaitedMessage = $null
-			while (!$this.SharedState.MessageHistory.TryGetValue([version]::new($CommandId, 0), [ref]$AwaitedMessage)) {
-				Start-Sleep -Milliseconds 1
+		$Response = switch ($WaitForResponse) {
+			([WaitForResponse]::None) {
+				$null
+				break
 			}
-			return $AwaitedMessage
+			([WaitForResponse]::Message) {
+				$AwaitedMessage = $null
+				while (!$this.SharedState.MessageHistory.TryGetValue([version]::new($CommandId, 0), [ref]$AwaitedMessage)) {
+					Start-Sleep -Milliseconds 1
+				}
+				$AwaitedMessage
+				break
+			}
+			([WaitForResponse]::CommandId) {
+				$CommandId
+				break
+			}
 		}
-		return $null
+
+		return $Response
 	}
 
 	[CdpPage]GetPageBySessionId([string]$SessionId) {
@@ -672,7 +692,7 @@ class CdpServer {
 		$JsonCommand = Get-Page.enable $SessionId
 		$this.SendCommand($JsonCommand)
 		$JsonCommand = Get-Runtime.enable $SessionId
-		$this.SendCommand($JsonCommand, $true)
+		$null = $this.SendCommand($JsonCommand, [WaitForResponse]::Message)
 	}
 
 	[object]ShowMessageHistory() {
@@ -1007,23 +1027,25 @@ function Start-CdpServer {
 	}
 
 	$ConsoleHost = if ($StreamOutput) { $StreamOutput } else { (Get-Host) }
-	$Server = New-UnboundClassInstance CdpServer -arguments $BrowserPath, $ConsoleHost, $BrowserArgs, $AdditionalThreads, $Callbacks, $State
+	$CdpServer = New-UnboundClassInstance CdpServer -arguments $BrowserPath, $ConsoleHost, $BrowserArgs, $AdditionalThreads, $Callbacks, $State
 
 	if ($PSBoundParameters.ContainsKey('Debug')) {
-		$Server.SharedState.DebugPreference = 'Continue'
+		$CdpServer.SharedState.DebugPreference = 'Continue'
 	}
+
 	if ($PSBoundParameters.ContainsKey('Verbose')) {
-		$Server.SharedState.VerbosePreference = 'Continue'
+		$CdpServer.SharedState.VerbosePreference = 'Continue'
 	}
-	$Server.StartMessageReader()
-	$Server.StartMessageProcessor()
-	$Server.StartMessageWriter()
+
+	$CdpServer.StartMessageReader()
+	$CdpServer.StartMessageProcessor()
+	$CdpServer.StartMessageWriter()
 
 	if (!$DisableDefaultEvents) {
-		$Server.EnableDefaultEvents()
+		$CdpServer.EnableDefaultEvents()
 	}
 
-	$Server
+	$CdpServer.GetFirstAvailableCdpPage()
 }
 
 function Stop-CdpServer {
@@ -1033,11 +1055,16 @@ function Stop-CdpServer {
 	#>
 	[CmdletBinding()]
 	param (
-		[Parameter(Mandatory)]
-		[CdpServer]$Server
+		[Parameter(ValueFromPipeline, Position = 0)]
+		[CdpPage]$CdpPage,
+		[Parameter(ValueFromPipeline, Position = 0)]
+		[CdpServer]$CdpServer
 	)
 
-	$Server.Stop()
+	process {
+		if ($CdpPage) { $CdpServer = $CdpPage.CdpServer }
+		$CdpServer.Stop()
+	}
 }
 
 function New-CdpPage {
@@ -1047,66 +1074,73 @@ function New-CdpPage {
 	#>
 	[CmdletBinding()]
 	param (
-		[Parameter(Mandatory)]
-		[CdpServer]$Server,
+		[Parameter(ValueFromPipeline, Position = 0)]
+		[Parameter(ParameterSetName = 'ByPage')]
+		[CdpPage]$CdpPage,
+		[Parameter(ValueFromPipeline, Position = 0)]
+		[Parameter(ParameterSetName = 'ByServer')]
+		[CdpServer]$CdpServer,
 		[string]$Url = 'about:blank',
-		[Parameter(ParameterSetName = 'Tab')]
-		[string]$BrowserContextId,
-		[Parameter(ParameterSetName = 'NewWindow')]
 		[switch]$NewWindow
 	)
 
-	if ($NewWindow) {
-		$Command = Get-Target.createBrowserContext
-		$Response = $Server.SendCommand($Command, $true)
-	}
+	process {
+		if ($PSCmdlet.ParameterSetName -eq 'ByPage') { $CdpServer = $CdpPage.CdpServer }
 
-	$Command = Get-Target.createTarget $Url
-	if ($NewWindow) {
-		$Command.params.newWindow = $true
-		$Command.params.browserContextId = $Response.result.browserContextId
-	} else {
-		$Command.params.browserContextId = $BrowserContextId
-	}
-	$Response = $Server.SendCommand($Command, $true)
-	$CdpPage = $Server.GetPageByTargetId($Response.result.targetId)
-	$SessionId = $null
-	while ($null -eq $SessionId) {
-		$null = $CdpPage.TargetInfo.TryGetValue('SessionId', [ref]$SessionId)
-		Start-Sleep -Milliseconds 1
-	}
+		if ($NewWindow) {
+			$Command = Get-Target.createBrowserContext
+			$Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+		}
 
-	$Command = Get-Page.enable $SessionId
-	$null = $Server.SendCommand($Command, $true)
-	$Command = Get-Runtime.enable $SessionId
-	$null = $Server.SendCommand($Command, $true)
+		$Command = Get-Target.createTarget $Url
+		if ($NewWindow) {
+			$Command.params.newWindow = $true
+			$Command.params.browserContextId = $Response.result.browserContextId
+		} else {
+			$Command.params.browserContextId = $CdpPage.BrowserContextId
+		}
 
-	$RuntimeUniqueId = $null
-	while ($null -eq $RuntimeUniqueId) {
-		$null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$RuntimeUniqueId)
-		Start-Sleep -Milliseconds 1
-	}
+		$Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+		$CdpPage = $CdpServer.GetPageByTargetId($Response.result.targetId)
 
-	$IsLoading = $null
-	$null = $CdpPage.LoadingEvents.TryGetValue('IsLoading', [ref]$IsLoading)
-	while ($IsLoading) {
-		Start-Sleep -Milliseconds 1
+		$SessionId = $null
+		while ($null -eq $SessionId) {
+			$null = $CdpPage.TargetInfo.TryGetValue('SessionId', [ref]$SessionId)
+			Start-Sleep -Milliseconds 1
+		}
+
+		$Command = Get-Page.enable $SessionId
+		$null = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+		$Command = Get-Runtime.enable $SessionId
+		$null = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+
+		$RuntimeUniqueId = $null
+		while ($null -eq $RuntimeUniqueId) {
+			$null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$RuntimeUniqueId)
+			Start-Sleep -Milliseconds 1
+		}
+
+		$IsLoading = $null
 		$null = $CdpPage.LoadingEvents.TryGetValue('IsLoading', [ref]$IsLoading)
-	}
+		while ($IsLoading) {
+			Start-Sleep -Milliseconds 1
+			$null = $CdpPage.LoadingEvents.TryGetValue('IsLoading', [ref]$IsLoading)
+		}
 
-	$CdpPage
+		$Command = Get-Page.getFrameTree $SessionId
+		do {
+			$Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+			$Tree = Get-CdpFrames $Response.result.frameTree
+			$AllFramesInTree = $CdpPage.Frames.ToArray().Key | Where-Object { $_ -in $Tree.id }
+			$FilteredTree = $Tree.id | Where-Object { $_ -ne $CdpPage.TargetId } # there is always the target frame in $Tree that isn't tracked in $Frames
+			$AllTreeInFrames = $FilteredTree | Where-Object { $_ -in $CdpPage.Frames.ToArray().Key }
+		} while ($AllFramesInTree.Count -ne $CdpPage.Frames.Count -or $AllTreeInFrames.Count -ne ($FilteredTree.Count))
 
-	$Command = Get-Page.getFrameTree $SessionId
-	do {
-		$Response = $Server.SendCommand($Command, $true)
-		$Tree = Get-CdpFrames $Response.result.frameTree
-		$AllFramesInTree = $CdpPage.Frames.ToArray().Key | Where-Object { $_ -in $Tree.id }
-		$FilteredTree = $Tree.id | Where-Object { $_ -ne $CdpPage.TargetId } # there is always the target frame in $Tree that isn't tracked in $Frames
-		$AllTreeInFrames = $FilteredTree | Where-Object { $_ -in $CdpPage.Frames.ToArray().Key }
-	} while ($AllFramesInTree.Count -ne $CdpPage.Frames.Count -or $AllTreeInFrames.Count -ne ($FilteredTree.Count))
+		while ([System.Linq.Enumerable]::Sum([int[]]@($CdpPage.Frames.Values.LoadingEvents.IsLoading)) -gt 0) {
+			Start-Sleep -Milliseconds 1
+		}
 
-	while ([System.Linq.Enumerable]::Sum([int[]]@($CdpPage.Frames.Values.LoadingEvents.IsLoading)) -gt 0) {
-		Start-Sleep -Milliseconds 1
+		$CdpPage
 	}
 }
 
@@ -1118,47 +1152,50 @@ function Invoke-CdpPageNavigate {
 	#>
 	[CmdletBinding()]
 	param (
-		[Parameter(Mandatory)]
-		[CdpServer]$Server,
-		[Parameter(Mandatory)]
-		[string]$SessionId,
+		[Parameter(Mandatory, ValueFromPipeline)]
+		[CdpPage]$CdpPage,
 		[Parameter(Mandatory)]
 		[string]$Url
 	)
 
-	$CdpPage = $Server.GetPageBySessionId($SessionId)
-	$OldRuntimeUniqueId = $CdpPage.PageInfo.RuntimeUniqueId
+	process {
+		$CdpServer = $CdpPage.CdpServer
+		$SessionId = $CdpPage.TargetInfo.SessionId
+		$OldRuntimeUniqueId = $CdpPage.PageInfo.RuntimeUniqueId
 
-	$Command = Get-Page.navigate $SessionId $Url
-	$Server.SendCommand($Command)
+		$Command = Get-Page.navigate $SessionId $Url
+		$CdpServer.SendCommand($Command)
 
-	$NewRuntimeUniqueId = $null
-	$null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$NewRuntimeUniqueId)
-	if ($null -ne $OldRuntimeUniqueId) {
-		while ($NewRuntimeUniqueId -eq $OldRuntimeUniqueId) {
-			Start-Sleep -Milliseconds 1
-			$null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$NewRuntimeUniqueId)
+		$NewRuntimeUniqueId = $null
+		$null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$NewRuntimeUniqueId)
+		if ($null -ne $OldRuntimeUniqueId) {
+			while ($NewRuntimeUniqueId -eq $OldRuntimeUniqueId) {
+				Start-Sleep -Milliseconds 1
+				$null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$NewRuntimeUniqueId)
+			}
 		}
-	}
 
-	$IsLoading = $null
-	$null = $CdpPage.LoadingEvents.TryGetValue('IsLoading', [ref]$IsLoading)
-	while ($IsLoading) {
-		Start-Sleep -Milliseconds 1
+		$IsLoading = $null
 		$null = $CdpPage.LoadingEvents.TryGetValue('IsLoading', [ref]$IsLoading)
-	}
+		while ($IsLoading) {
+			Start-Sleep -Milliseconds 1
+			$null = $CdpPage.LoadingEvents.TryGetValue('IsLoading', [ref]$IsLoading)
+		}
 
-	$Command = Get-Page.getFrameTree $SessionId
-	do {
-		$Response = $Server.SendCommand($Command, $true)
-		$Tree = Get-CdpFrames $Response.result.frameTree
-		$AllFramesInTree = $CdpPage.Frames.ToArray().Key | Where-Object { $_ -in $Tree.id }
-		$FilteredTree = $Tree.id | Where-Object { $_ -ne $CdpPage.TargetId } # there is always the target frame in $Tree that isn't tracked in $Frames
-		$AllTreeInFrames = $FilteredTree | Where-Object { $_ -in $CdpPage.Frames.ToArray().Key }
-	} while ($AllFramesInTree.Count -ne $CdpPage.Frames.Count -or $AllTreeInFrames.Count -ne ($FilteredTree.Count))
+		$Command = Get-Page.getFrameTree $SessionId
+		do {
+			$Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+			$Tree = Get-CdpFrames $Response.result.frameTree
+			$AllFramesInTree = $CdpPage.Frames.ToArray().Key | Where-Object { $_ -in $Tree.id }
+			$FilteredTree = $Tree.id | Where-Object { $_ -ne $CdpPage.TargetId } # there is always the target frame in $Tree that isn't tracked in $Frames
+			$AllTreeInFrames = $FilteredTree | Where-Object { $_ -in $CdpPage.Frames.ToArray().Key }
+		} while ($AllFramesInTree.Count -ne $CdpPage.Frames.Count -or $AllTreeInFrames.Count -ne ($FilteredTree.Count))
 
-	while ([System.Linq.Enumerable]::Sum([int[]]@($CdpPage.Frames.Values.LoadingEvents.IsLoading)) -gt 0) {
-		Start-Sleep -Milliseconds 1
+		while ([System.Linq.Enumerable]::Sum([int[]]@($CdpPage.Frames.Values.LoadingEvents.IsLoading)) -gt 0) {
+			Start-Sleep -Milliseconds 1
+		}
+
+		$_
 	}
 }
 
@@ -1178,13 +1215,13 @@ function Invoke-CdpInputClickElement {
 		Number of pixels to offset from the center of the element on the Y axis
 		.PARAMETER TopLeft
 		Clicks from the top left of the element instead of center. Offset x and y will be relative to this position instead.
+		.PARAMETER BringToFront
+		Attemps to brings page to front once before sending click.
 	#>
 	[CmdletBinding()]
 	param (
-		[Parameter(Mandatory)]
-		[CdpServer]$Server,
-		[Parameter(Mandatory)]
-		[string]$SessionId,
+		[Parameter(Mandatory, ValueFromPipeline)]
+		[CdpPage]$CdpPage,
 		[Parameter(Mandatory)]
 		[string]$Selector,
 		[Parameter(ParameterSetName = 'Click')]
@@ -1198,49 +1235,62 @@ function Invoke-CdpInputClickElement {
 		[switch]$BringToFront
 	)
 
-	$CdpPage = $Server.GetPageBySessionId($SessionId)
+	process {
+		$CdpServer = $CdpPage.CdpServer
+		$SessionId = $CdpPage.TargetInfo.SessionId
 
-	$Command = Get-Runtime.evaluate $SessionId $Selector
-	$Command.params.uniqueContextId = "$($CdpPage.PageInfo.RuntimeUniqueId)"
-	$Response = $Server.SendCommand($Command, $true)
-	$CdpPage.PageInfo.ObjectId = $Response.result.result.objectId
+		$Command = Get-Runtime.evaluate $SessionId $Selector
+		$Command.params.uniqueContextId = "$($CdpPage.PageInfo.RuntimeUniqueId)"
+		$Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+		$CdpPage.PageInfo.ObjectId = $Response.result.result.objectId
 
-	if ($Click -le 0) { return }
+		if ($Click -le 0) { return $_ }
 
-	$Command = Get-DOM.describeNode $SessionId $CdpPage.PageInfo.ObjectId
-	$Command.params.objectId = $CdpPage.PageInfo.ObjectId
-	$Response = $Server.SendCommand($Command, $true)
+		$Command = Get-DOM.describeNode $SessionId $CdpPage.PageInfo.ObjectId
+		$Command.params.objectId = $CdpPage.PageInfo.ObjectId
+		$Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
 
-	if ($Response.error) {
-		throw ('Error describing node: {0}' -f $Response.error.message)
+		if ($Response.error) {
+			throw ('Error describing node: {0}' -f $Response.error.message)
+		}
+
+		$CdpPage.PageInfo.Node = $Response.result.node
+
+		$Command = Get-DOM.getBoxModel $SessionId $CdpPage.PageInfo.ObjectId
+		$Command.params.objectId = $CdpPage.PageInfo.ObjectId
+		$Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+		$CdpPage.PageInfo.BoxModel = $Response.result.model
+
+		if ($TopLeft) {
+			$PixelX = $CdpPage.PageInfo.BoxModel.content[0] + $OffsetX
+			$PixelY = $CdpPage.PageInfo.BoxModel.content[1] + $OffsetY
+		} else {
+			$PixelX = $CdpPage.PageInfo.BoxModel.content[0] + ($CdpPage.PageInfo.BoxModel.width / 2) + $OffsetX
+			$PixelY = $CdpPage.PageInfo.BoxModel.content[1] + ($CdpPage.PageInfo.BoxModel.height / 2) + $OffsetY
+		}
+
+		$Command = Get-Input.dispatchMouseEvent $SessionId 'mousePressed' $PixelX $PixelY 'left'
+		$Command.params.clickCount = $Click
+
+		if ($BringToFront) {
+			$CommandFront = Get-Page.bringToFront $SessionId
+			$null = $CdpServer.SendCommand($CommandFront, [WaitForResponse]::Message)
+		}
+
+		$CommandIdWaiter = @(
+			$CdpServer.SendCommand($Command, [WaitForResponse]::CommandId)
+			$Command.params.type = 'mouseReleased'
+			$CdpServer.SendCommand($Command, [WaitForResponse]::CommandId)
+		)
+
+		$CommandResponse = 0
+		while ($CommandResponse.Count -ne 2) {
+			$CommandResponse = $CommandIdWaiter | Where-Object { $_ -in $CdpServer.ShowMessageHistory().id }
+			Start-Sleep -Milliseconds 1
+		}
+
+		$_
 	}
-
-	$CdpPage.PageInfo.Node = $Response.result.node
-
-	$Command = Get-DOM.getBoxModel $SessionId $CdpPage.PageInfo.ObjectId
-	$Command.params.objectId = $CdpPage.PageInfo.ObjectId
-	$Response = $Server.SendCommand($Command, $true)
-	$CdpPage.PageInfo.BoxModel = $Response.result.model
-
-	if ($TopLeft) {
-		$PixelX = $CdpPage.PageInfo.BoxModel.content[0] + $OffsetX
-		$PixelY = $CdpPage.PageInfo.BoxModel.content[1] + $OffsetY
-	} else {
-		$PixelX = $CdpPage.PageInfo.BoxModel.content[0] + ($CdpPage.PageInfo.BoxModel.width / 2) + $OffsetX
-		$PixelY = $CdpPage.PageInfo.BoxModel.content[1] + ($CdpPage.PageInfo.BoxModel.height / 2) + $OffsetY
-	}
-
-	$Command = Get-Input.dispatchMouseEvent $SessionId 'mousePressed' $PixelX $PixelY 'left'
-	$Command.params.clickCount = $Click
-
-	if ($BringToFront) {
-		$CommandFront = Get-Page.bringToFront $SessionId
-		$null = $Server.SendCommand($CommandFront, $true)
-	}
-
-	$Server.SendCommand($Command)
-	$Command.params.type = 'mouseReleased'
-	$Server.SendCommand($Command)
 }
 
 function Invoke-CdpInputSendKeys {
@@ -1250,29 +1300,44 @@ function Invoke-CdpInputSendKeys {
 		.PARAMETER Keys
 		String to send
 		.EXAMPLE
-		Invoke-CdpInputSendKeys -Server $Server -SessionId $SessionId -Keys 'Hello World'
+		Invoke-CdpInputSendKeys -CdpPage $CdpPage -Keys 'Hello World'
+		.PARAMETER BringToFront
+		Attemps to brings page to front once before sending keys.
 	#>
 	[CmdletBinding()]
 	param (
-		[Parameter(Mandatory)]
-		[CdpServer]$Server,
-		[Parameter(Mandatory)]
-		[string]$SessionId,
+		[Parameter(Mandatory, ValueFromPipeline)]
+		[CdpPage]$CdpPage,
 		[Parameter(Mandatory)]
 		[string]$Keys,
 		[switch]$BringToFront
 	)
 
-	$Command = Get-Input.DispatchKeyEvent $SessionId $null
-	if ($BringToFront) {
-		$CommandFront = Get-Page.bringToFront $SessionId
-		$null = $Server.SendCommand($CommandFront, $true)
-	}
-	$Keys.ToCharArray().ForEach({
-			$Command.params.text = $_
-			$Server.SendCommand($Command)
+	process {
+		$CdpServer = $CdpPage.CdpServer
+		$SessionId = $CdpPage.TargetInfo.SessionId
+		$Command = Get-Input.DispatchKeyEvent $SessionId $null
+
+		if ($BringToFront) {
+			$CommandFront = Get-Page.bringToFront $SessionId
+			$null = $CdpServer.SendCommand($CommandFront, [WaitForResponse]::Message)
 		}
-	)
+
+		$CommandIdWaiter = $Keys.ToCharArray().ForEach({
+				$Command.params.text = $_
+				$CdpServer.SendCommand($Command, [WaitForResponse]::CommandId)
+			}
+		)
+
+		$CommandResponse = 0
+		$KeyCount = $Keys.ToCharArray().Count
+		while ($CommandResponse.Count -ne $KeyCount) {
+			$CommandResponse = $CommandIdWaiter | Where-Object { $_ -in $CdpServer.ShowMessageHistory().id }
+			Start-Sleep -Milliseconds 1
+		}
+
+		$_
+	}
 }
 
 function Invoke-CdpRuntimeEvaluate {
@@ -1313,7 +1378,7 @@ async function awaitMultiplePromises() {
 awaitMultiplePromises();
 '@
 	$StartTime = Get-Date
-	$Result = Invoke-CdpRuntimeEvaluate -Server $Server -SessionId $SessionId -Expression $Expression -AwaitPromise
+	$Result = Invoke-CdpRuntimeEvaluate -CdpPage $CdpPage -Expression $Expression -AwaitPromise
 	$EndTime = Get-Date
 	($EndTime - $StartTime).TotalSeconds
 	$Result.result.result
@@ -1321,20 +1386,23 @@ awaitMultiplePromises();
 	#>
 	[CmdletBinding()]
 	param (
-		[Parameter(Mandatory)]
-		[CdpServer]$Server,
-		[Parameter(Mandatory)]
-		[string]$SessionId,
+		[Parameter(Mandatory, ValueFromPipeline)]
+		[CdpPage]$CdpPage,
 		[Parameter(Mandatory)]
 		[string]$Expression,
 		[switch]$AwaitPromise
 	)
-	$CdpPage = $Server.GetPageBySessionId($SessionId)
-	$Command = Get-Runtime.evaluate $SessionId $Expression
-	$Command.params.uniqueContextId = "$($CdpPage.PageInfo.RuntimeUniqueId)"
-	if ($AwaitPromise) { $Command.params.awaitPromise = $true }
-	$Response = $Server.SendCommand($Command, $true)
-	$Response
+
+	process {
+		$CdpServer = $CdpPage.CdpServer
+		$SessionId = $CdpPage.TargetInfo.SessionId
+		$Command = Get-Runtime.evaluate $SessionId $Expression
+		$Command.params.uniqueContextId = "$($CdpPage.PageInfo.RuntimeUniqueId)"
+		if ($AwaitPromise) { $Command.params.awaitPromise = $true }
+		$Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+
+		$Response
+	}
 }
 
 function Invoke-CdpRuntimeAddBinding {
@@ -1346,13 +1414,18 @@ function Invoke-CdpRuntimeAddBinding {
 	#>
 	[CmdletBinding()]
 	param (
-		[Parameter(Mandatory)]
-		[CdpServer]$Server,
-		[Parameter(Mandatory)]
-		[string]$SessionId,
+		[Parameter(Mandatory, ValueFromPipeline)]
+		[CdpPage]$CdpPage,
 		[Parameter(Mandatory)]
 		[string]$Name
 	)
-	$Command = Get-Runtime.addBinding $SessionId $Name
-	$Server.SendCommand($Command)
+
+	process {
+		$CdpServer = $CdpPage.CdpServer
+		$SessionId = $CdpPage.TargetInfo.SessionId
+		$Command = Get-Runtime.addBinding $SessionId $Name
+		$CdpServer.SendCommand($Command)
+
+		$_
+	}
 }
