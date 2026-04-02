@@ -676,6 +676,9 @@ class CdpServer {
 		$this.SendCommand($JsonCommand)
 		$JsonCommand = Get-Runtime.enable $SessionId
 		$null = $this.SendCommand($JsonCommand, [WaitForResponse]::Message)
+
+		$RuntimeUniqueId = $null
+		[System.Threading.SpinWait]::SpinUntil({ $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$RuntimeUniqueId); $null -ne $RuntimeUniqueId })
 	}
 
 	[object]ShowMessageHistory() {
