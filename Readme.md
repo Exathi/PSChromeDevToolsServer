@@ -14,7 +14,7 @@ Two goals in making this:
 
 ## Commands
 
-Start-CdpServer - Launch browser and returns `[CdpServer]`.
+Start-CdpServer - Launch browser and returns the first `[CdpPage]`.
 
 Stop-CdpServer - Close browser and dispose pipes, processes, runspace pool.
 
@@ -34,7 +34,7 @@ ConvertTo-Delegate - Used to convert PSMethods to delegates for Windows Powershe
 
 ## Classes
 
-`Start-CdpServer` returns a `[CdpServer]` object. Pass this into every function as they internally call `$CdpServer.SendCommand()` to send commands to the browser.
+`Start-CdpServer` returns a `[CdpPage]`. Pass this into every function as they internally call `$CdpPage.CdpServer.SendCommand()` to send commands to the browser.
 
 ``` Powershell
 # Basic information about a tab target.
