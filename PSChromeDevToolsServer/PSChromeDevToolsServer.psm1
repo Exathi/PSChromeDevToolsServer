@@ -427,8 +427,8 @@ class CdpServer {
 		$this.SharedState.IO = @{
 			PipeWriter = [System.IO.Pipes.AnonymousPipeServerStream]::new([System.IO.Pipes.PipeDirection]::Out, [System.IO.HandleInheritability]::Inheritable)
 			PipeReader = [System.IO.Pipes.AnonymousPipeServerStream]::new([System.IO.Pipes.PipeDirection]::In, [System.IO.HandleInheritability]::Inheritable)
-			UnprocessedResponses = [System.Collections.Concurrent.ConcurrentQueue[object]]::new()
-			CommandQueue = [System.Collections.Concurrent.ConcurrentQueue[object]]::new()
+			UnprocessedResponses = [System.Collections.Concurrent.BlockingCollection[object]]::new()
+			CommandQueue = [System.Collections.Concurrent.BlockingCollection[object]]::new()
 		}
 
 		$this.SharedState.Server = $this
@@ -500,7 +500,7 @@ class CdpServer {
 						$RawResponse = $StringBuilder.ToString()
 						$SplitResponse = @(($RawResponse -split $NullTerminatedString).Where({ "`0" -ne $_ }) | ConvertFrom-Json)
 						$SplitResponse.ForEach({
-								$SharedState.IO.UnprocessedResponses.Enqueue($_)
+								$SharedState.IO.UnprocessedResponses.Add($_)
 							}
 						)
 						$StringBuilder.Clear()
@@ -518,39 +518,33 @@ class CdpServer {
 				if ($SharedState.DebugPreference) { $DebugPreference = $SharedState.DebugPreference }
 				if ($SharedState.VerbosePreference) { $VerbosePreference = $SharedState.VerbosePreference }
 
-				$Response = $null
-				$IdleTime = 1
 				$ResponseIndex = 1
 
-				while ($SharedState.IO.PipeReader.IsConnected -and $SharedState.IO.PipeWriter.IsConnected) {
-					while ($SharedState.IO.UnprocessedResponses.TryDequeue([ref]$Response)) {
-
-						$LastCommandId = $null
-						if ($Response.id) {
-							$LastCommandId = $Response.id
-						} else {
-							while (!$SharedState.TryGetValue('CommandId', [ref]$LastCommandId)) {
-								Start-Sleep -Milliseconds 1
-							}
+				foreach ($Response in $SharedState.IO.UnprocessedResponses.GetConsumingEnumerable()) {
+					$LastCommandId = $null
+					if ($Response.id) {
+						$LastCommandId = $Response.id
+					} else {
+						while (!$SharedState.TryGetValue('CommandId', [ref]$LastCommandId)) {
+							Start-Sleep -Milliseconds 1
 						}
-
-						do {
-							$SucessfullyAdded = if ($Response.id) {
-								$SharedState.MessageHistory.TryAdd([version]::new($LastCommandId, 0), $Response)
-							} else {
-								$SharedState.MessageHistory.TryAdd([version]::new($LastCommandId, $ResponseIndex++), $Response)
-							}
-							if (!$SucessfullyAdded) {
-								Start-Sleep -Milliseconds 1
-							}
-						} while (!$SucessfullyAdded)
-
-						# $Start = Get-Date
-						$SharedState.EventHandler.ProcessEvent($Response)
-						# $End = Get-Date
-						# Write-Debug ('{0} {1} Processing Time: {2} ms' -f $Response.id, $Response.method, ($End - $Start).TotalMilliseconds)
 					}
-					Start-Sleep -Milliseconds $IdleTime
+
+					do {
+						$SucessfullyAdded = if ($Response.id) {
+							$SharedState.MessageHistory.TryAdd([version]::new($LastCommandId, 0), $Response)
+						} else {
+							$SharedState.MessageHistory.TryAdd([version]::new($LastCommandId, $ResponseIndex++), $Response)
+						}
+						if (!$SucessfullyAdded) {
+							Start-Sleep -Milliseconds 1
+						}
+					} while (!$SucessfullyAdded)
+
+					# $Start = Get-Date
+					$SharedState.EventHandler.ProcessEvent($Response)
+					# $End = Get-Date
+					# Write-Debug ('{0} {1} Processing Time: {2} ms' -f $Response.id, $Response.method, ($End - $Start).TotalMilliseconds)
 				}
 			}
 		)
@@ -564,13 +558,8 @@ class CdpServer {
 				if ($SharedState.DebugPreference) { $DebugPreference = $SharedState.DebugPreference }
 				if ($SharedState.VerbosePreference) { $VerbosePreference = $SharedState.VerbosePreference }
 
-				$CommandBytes = $null
-				$IdleTime = 1
-				while ($SharedState.IO.PipeReader.IsConnected -and $SharedState.IO.PipeWriter.IsConnected) {
-					while ($SharedState.IO.CommandQueue.TryDequeue([ref]$CommandBytes)) {
-						$SharedState.IO.PipeWriter.Write($CommandBytes, 0, $CommandBytes.Length)
-					}
-					Start-Sleep -Milliseconds $IdleTime
+				foreach ($CommandBytes in $SharedState.IO.CommandQueue.GetConsumingEnumerable()) {
+					$SharedState.IO.PipeWriter.Write($CommandBytes, 0, $CommandBytes.Length)
 				}
 			}
 		)
@@ -580,9 +569,8 @@ class CdpServer {
 	[void]Stop() {
 		$this.SharedState.IO.PipeReader.Dispose()
 		$this.SharedState.IO.PipeWriter.Dispose()
-		while ($this.SharedState.IO.PipeReader.IsConnected -or $this.SharedState.IO.PipeWriter.IsConnected) {
-			Start-Sleep -Milliseconds 1
-		}
+		$this.SharedState.IO.UnprocessedResponses.CompleteAdding()
+		$this.SharedState.IO.CommandQueue.CompleteAdding()
 		if ($this.Threads.MessageReaderHandle) {
 			$this.Threads.MessageReader.EndInvoke($this.Threads.MessageReaderHandle)
 			$this.Threads.MessageReader.Dispose()
@@ -595,6 +583,8 @@ class CdpServer {
 			$this.Threads.MessageWriter.EndInvoke($this.Threads.MessageWriterHandle)
 			$this.Threads.MessageWriter.Dispose()
 		}
+		$this.SharedState.IO.UnprocessedResponses.Dispose()
+		$this.SharedState.IO.CommandQueue.Dispose()
 		$this.ChromeProcess.Dispose()
 		$this.RunspacePool.Dispose()
 	}
@@ -610,7 +600,7 @@ class CdpServer {
 		$Command.id = $CommandId
 		$JsonCommand = $Command | ConvertTo-Json -Depth 10 -Compress
 		$CommandBytes = [System.Text.Encoding]::UTF8.GetBytes($JsonCommand) + 0
-		$this.SharedState.IO.CommandQueue.Enqueue($CommandBytes)
+		$this.SharedState.IO.CommandQueue.Add($CommandBytes)
 		$Response = switch ($WaitForResponse) {
 			([WaitForResponse]::None) {
 				$null
