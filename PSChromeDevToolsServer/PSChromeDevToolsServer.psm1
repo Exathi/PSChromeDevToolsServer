@@ -1274,11 +1274,12 @@ function Invoke-CdpInputClickElement {
 			$CdpServer.SendCommand($Command, [WaitForResponse]::CommandId)
 		)
 
-		$CommandResponse = 0
-		while ($CommandResponse.Count -ne 2) {
-			$CommandResponse = $CommandIdWaiter | Where-Object { $_ -in $CdpServer.ShowMessageHistory().id }
-			Start-Sleep -Milliseconds 1
-		}
+		[System.Threading.SpinWait]::SpinUntil(
+			{
+				$CommandResponse = $CommandIdWaiter.Where({ $CdpServer.SharedState.MessageHistory.ContainsKey([version]::new($_, 0)) })
+				$CommandResponse.Count -eq 2
+			}
+		)
 
 		$_
 	}
@@ -1325,12 +1326,13 @@ function Invoke-CdpInputSendKeys {
 			}
 		)
 
-		$CommandResponse = 0
 		$KeyCount = $Keys.ToCharArray().Count
-		while ($CommandResponse.Count -ne $KeyCount) {
-			$CommandResponse = $CommandIdWaiter | Where-Object { $_ -in $CdpServer.ShowMessageHistory().id }
-			Start-Sleep -Milliseconds 1
-		}
+		[System.Threading.SpinWait]::SpinUntil(
+			{
+				$CommandResponse = $CommandIdWaiter.Where({ $CdpServer.SharedState.MessageHistory.ContainsKey([version]::new($_, 0)) })
+				$CommandResponse.Count -eq $KeyCount
+			}
+		)
 
 		$_
 	}
