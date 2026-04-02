@@ -102,7 +102,7 @@ class CdpFrame {
 	CdpFrame ($FrameId, $SessionId) {
 		$this.LoadingEvents.FrameStartedLoading = 0
 		$this.LoadingEvents.FrameStoppedLoading = 0
-		$this.LoadingEvents.IsLoading = $false
+		$this.LoadingEvents.IsLoading = $true
 		$this.FrameId = $FrameId
 		$this.ParentFrameId = $null
 		$this.SessionId = $SessionId
@@ -244,8 +244,9 @@ class CdpEventHandler {
 	}
 
 	hidden [void]FrameStartedNavigating($Response) {
-		# $CdpPage = $this.GetPageBySessionId($Response.sessionId)
-		# $CdpPage.LoadingEvents.AddOrUpdate('IsLoading', $true, { param($Key, $OldValue) $true })
+		# earliest commitment to load and before Runtime.executionContextsCleared fires.
+		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
+		$CdpPage.LoadingEvents.AddOrUpdate('IsLoading', $true, { param($Key, $OldValue) $true })
 		# Write-Debug ('Frame Started Navigating: ({0})' -f ($Response | ConvertTo-Json -Depth 10))
 
 		$Callback = $this.SharedState.Callbacks['OnFrameStartedNavigating']
