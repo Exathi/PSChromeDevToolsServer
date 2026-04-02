@@ -50,27 +50,27 @@ $OnExecutionContextCreated = {
 	}
 }.Ast.GetScriptBlock()
 
-$Server = Start-CdpServer -StartPage $UriBuilder.Uri.AbsoluteUri -UserDataDir $UserDataDir -BrowserPath $BrowserPath -Callbacks @{
+$CdpPage = Start-CdpServer -StartPage $UriBuilder.Uri.AbsoluteUri -UserDataDir $UserDataDir -BrowserPath $BrowserPath -Callbacks @{
 	OnBindingCalled = $OnBindingCalled
 	OnExecutionContextCreated = $OnExecutionContextCreated
 }# -Verbose -Debug
+$CdpServer = $CdpPage.CdpServer
 
 # Optionally start more threads to process messages if there is something that will run for a while.
 # $Server = Start-CdpServer -StartPage $UriBuilder.Uri.AbsoluteUri -UserDataDir $UserDataDir -BrowserPath $BrowserPath -Callbacks @{
 # 	OnBindingCalled = $OnBindingCalled
 # 	OnExecutionContextCreated = $OnExecutionContextCreated
 # } -AdditionalThreads 1
-# $Server.StartMessageProcessor()
 
 # Add 'PowershellServer' through addBinding. When a button is clicked, it calls window.PowershellServer(payload); configured in script.js
 # $OnBindingCalled is invoked and ran when a button is clicked.
-Invoke-CdpRuntimeAddBinding -Server $Server -SessionId $Server.SharedState.Targets.Values[0].TargetInfo.SessionId -Name 'PowershellServer'
-Invoke-CdpRuntimeEvaluate -Server $Server -SessionId $Server.SharedState.Targets.Values[0].TargetInfo.SessionId -Expression 'enableAllButtons()'
+Invoke-CdpRuntimeAddBinding -CdpPage $CdpPage -Name 'PowershellServer'
+$null = Invoke-CdpRuntimeEvaluate -CdpPage $CdpPage -Expression 'enableAllButtons()'
 
-$Server.ShowMessageHistory() | Format-Table -AutoSize
+$CdpServer.ShowMessageHistory() | Format-Table -AutoSize
 
-$Server.Threads.MessageReader.Streams
-$Server.Threads.MessageProcessor.Streams
-$Server.Threads.MessageWriter.Streams
+$CdpServer.Threads.MessageReader.Streams
+$CdpServer.Threads.MessageProcessor.Streams
+$CdpServer.Threads.MessageWriter.Streams
 
 # Stop-CdpServer -Server $Server

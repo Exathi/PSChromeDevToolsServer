@@ -7,36 +7,36 @@ $BrowserPath = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
 
 # If there are not enough runspaces in the pool, the scriptblocks in $Async will be queued.
 # If all runspaces are exhausted with StartMessageProcessor/StartMessageWriter, the $Async will never run.
-$Server = Start-CdpServer -StartPage $UriBuilder.Uri.AbsoluteUri -UserDataDir $UserDataDir -BrowserPath $BrowserPath -AdditionalThreads 4
+$CdpPage = Start-CdpServer -StartPage $UriBuilder.Uri.AbsoluteUri -UserDataDir $UserDataDir -BrowserPath $BrowserPath -AdditionalThreads 4
+$CdpServer = $CdpPage.CdpServer
 
 $TestClickType = {
-    param($Server)
+    param($CdpServer)
     # MUST BE WINDOWED NOT FULLSCREENED
     # We use -NewWindow because sometimes inputs do not register to a tab that is not active.
     # It works if tabs are on separate windows.
     # Alternatively use javascript.click()/value
-    $CdpPage = New-CdpPage -Server $Server -Url 'about:blank' -NewWindow
-    Invoke-CdpPageNavigate -Server $Server -SessionId $CdpPage.TargetInfo.SessionId -Url 'https://www.selenium.dev/selenium/web/single_text_input.html'
-    Invoke-CdpInputClickElement -Server $Server -SessionId $CdpPage.TargetInfo.SessionId -Selector 'document.querySelector("[id=textInput]").value="H"' # page has weird loading delay bypassed by setting the box in javascript first
-    Invoke-CdpInputSendKeys -Server $Server -SessionId $CdpPage.TargetInfo.SessionId -Keys 'ello World'
-    Start-Sleep -Seconds 1
-    Invoke-CdpInputClickElement -Server $Server -SessionId $CdpPage.TargetInfo.SessionId -Selector 'document.querySelector("#textInput")' -Click 3 -TopLeft
-    Invoke-CdpInputSendKeys -Server $Server -SessionId $CdpPage.TargetInfo.SessionId -Keys 'PSChromeDevToolsServer'
+    $CdpPage = New-CdpPage -CdpServer $CdpServer -Url 'about:blank' -NewWindow
+    $null = $CdpPage | Invoke-CdpPageNavigate -Url 'https://www.selenium.dev/selenium/web/single_text_input.html' |
+    Invoke-CdpInputClickElement -Selector 'document.querySelector("[id=textInput]").value="H"' |
+    Invoke-CdpInputSendKeys -Keys 'ello World'
+    $null = $CdpPage | Invoke-CdpInputClickElement -Selector 'document.querySelector("#textInput")' -Click 3 -TopLeft |
+    Invoke-CdpInputSendKeys -Keys 'PSChromeDevToolsServer'
     'Finished TestClickType'
 
-    $CdpPage2 = New-CdpPage -Server $Server -Url 'https://www.selenium.dev/selenium/web/click_frames.html' -BrowserContextId $CdpPage.BrowserContextId
-    Invoke-CdpInputClickElement -Server $Server -SessionId $CdpPage2.TargetInfo.SessionId -Selector 'document.querySelector("frameset frame").contentDocument.querySelector("[id=source]").contentDocument.querySelector("[id=otherframe]").click()'
+    $CdpPage2 = $CdpPage | New-CdpPage -Url 'https://www.selenium.dev/selenium/web/click_frames.html'
+    $null = Invoke-CdpRuntimeEvaluate -CdpPage $CdpPage2 -Expression 'document.querySelector("frameset frame").contentDocument.querySelector("[id=source]").contentDocument.querySelector("[id=otherframe]").click()'
     'Finished TestClickFrame'
 }.Ast.GetScriptBlock()
 
-$Async1 = [powershell]::Create().AddScript($TestClickType).AddParameter('Server', $Server)
-$Async2 = [powershell]::Create().AddScript($TestClickType).AddParameter('Server', $Server)
-$Async3 = [powershell]::Create().AddScript($TestClickType).AddParameter('Server', $Server)
-$Async4 = [powershell]::Create().AddScript($TestClickType).AddParameter('Server', $Server)
-$Async1.RunspacePool = $Server.Runspacepool
-$Async2.RunspacePool = $Server.Runspacepool
-$Async3.RunspacePool = $Server.Runspacepool
-$Async4.RunspacePool = $Server.Runspacepool
+$Async1 = [powershell]::Create().AddScript($TestClickType).AddParameter('CdpServer', $CdpServer)
+$Async2 = [powershell]::Create().AddScript($TestClickType).AddParameter('CdpServer', $CdpServer)
+$Async3 = [powershell]::Create().AddScript($TestClickType).AddParameter('CdpServer', $CdpServer)
+$Async4 = [powershell]::Create().AddScript($TestClickType).AddParameter('CdpServer', $CdpServer)
+$Async1.RunspacePool = $CdpServer.Runspacepool
+$Async2.RunspacePool = $CdpServer.Runspacepool
+$Async3.RunspacePool = $CdpServer.Runspacepool
+$Async4.RunspacePool = $CdpServer.Runspacepool
 
 $Handle1 = $Async1.BeginInvoke()
 $Handle2 = $Async2.BeginInvoke()
@@ -61,10 +61,10 @@ while (!$WaitAll.GetAwaiter().IsCompleted) {
 }
 $WaitAll.GetAwaiter().GetResult()
 
-# $Server.ShowMessageHistory() | Format-Table -AutoSize
+# $CdpServer.ShowMessageHistory() | Format-Table -AutoSize
 
-# $Server.Threads.MessageReader.Streams
-# $Server.Threads.MessageProcessor.Streams
-# $Server.Threads.MessageWriter.Streams
+# $CdpServer.Threads.MessageReader.Streams
+# $CdpServer.Threads.MessageProcessor.Streams
+# $CdpServer.Threads.MessageWriter.Streams
 
-# Stop-CdpServer -Server $Server
+# Stop-CdpServer -CdpPage $CdpPage
