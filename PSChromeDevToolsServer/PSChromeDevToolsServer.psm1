@@ -1203,6 +1203,8 @@ function Invoke-CdpInputClickElement {
 		Clicks from the top left of the element instead of center. Offset x and y will be relative to this position instead.
 		.PARAMETER BringToFront
 		Attemps to brings page to front once before sending click.
+		.PARAMETER Delay
+		Time in ms between each mouse down and mouse up command.
 	#>
 	[CmdletBinding()]
 	param (
@@ -1218,7 +1220,9 @@ function Invoke-CdpInputClickElement {
 		[int]$OffsetY = 0,
 		[Parameter(ParameterSetName = 'Click')]
 		[switch]$TopLeft,
-		[switch]$BringToFront
+		[switch]$BringToFront,
+		[ValidateLength(1, [int]::MaxValue)]
+		[int]$Delay = 1
 	)
 
 	process {
@@ -1266,6 +1270,7 @@ function Invoke-CdpInputClickElement {
 		$CommandIdWaiter = @(
 			$CdpServer.SendCommand($Command, [WaitForResponse]::CommandId)
 			$Command.params.type = 'mouseReleased'
+			Start-Sleep -Milliseconds $Delay # if we send click too fast it will fail to register.
 			$CdpServer.SendCommand($Command, [WaitForResponse]::CommandId)
 		)
 
@@ -1289,6 +1294,8 @@ function Invoke-CdpInputSendKeys {
 		Invoke-CdpInputSendKeys -CdpPage $CdpPage -Keys 'Hello World'
 		.PARAMETER BringToFront
 		Attemps to brings page to front once before sending keys.
+		.PARAMETER Delay
+		Time in ms between sending each key command.
 	#>
 	[CmdletBinding()]
 	param (
@@ -1296,7 +1303,9 @@ function Invoke-CdpInputSendKeys {
 		[CdpPage]$CdpPage,
 		[Parameter(Mandatory)]
 		[string]$Keys,
-		[switch]$BringToFront
+		[switch]$BringToFront,
+		[ValidateLength(1, [int]::MaxValue)]
+		[int]$Delay = 1
 	)
 
 	process {
@@ -1311,6 +1320,7 @@ function Invoke-CdpInputSendKeys {
 
 		$CommandIdWaiter = $Keys.ToCharArray().ForEach({
 				$Command.params.text = $_
+				Start-Sleep -Milliseconds $Delay # if we send keys too fast it will fail to register.
 				$CdpServer.SendCommand($Command, [WaitForResponse]::CommandId)
 			}
 		)
