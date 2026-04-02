@@ -99,23 +99,16 @@ class CdpFrame {
 	[string]$SessionId
 	[string]$RuntimeUniqueId
 
-	CdpFrame ($FrameId, $SessionId, $ParentFrameId) {
-		$this.Init($FrameId, $SessionId, $ParentFrameId)
-	}
-
 	CdpFrame ($FrameId, $SessionId) {
-		$this.Init($FrameId, $SessionId, $null)
-	}
-
-	hidden [void]Init($FrameId, $SessionId, $ParentFrameId) {
 		$this.LoadingEvents.FrameStartedLoading = 0
 		$this.LoadingEvents.FrameStoppedLoading = 0
 		$this.LoadingEvents.IsLoading = $false
 		$this.FrameId = $FrameId
-		$this.ParentFrameId = $ParentFrameId
+		$this.ParentFrameId = $null
 		$this.SessionId = $SessionId
 		$this.RuntimeUniqueId = $null
 	}
+
 	# so far not needed.
 	# $FrameInfo = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
 	$LoadingEvents = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
@@ -181,7 +174,7 @@ class CdpEventHandler {
 
 	hidden [void]FrameAttached($Response) {
 		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
-		$Frame = $CdpPage.Frames.GetOrAdd($Response.params.frameId, [CdpFrame]::new($Response.params.frameId, $Response.sessionId, $Response.params.parentFrameId))
+		$Frame = $CdpPage.Frames.GetOrAdd($Response.params.frameId, [CdpFrame]::new($Response.params.frameId, $Response.sessionId))
 		$Frame.ParentFrameId = $Response.params.parentFrameId
 
 		$Callback = $this.SharedState.Callbacks['OnFrameAttached']
