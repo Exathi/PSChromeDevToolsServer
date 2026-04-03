@@ -713,6 +713,20 @@ class CdpServer {
 			}
 		)
 
+		# Wait for main page to load
+		if (!$SkipForNewPage) {
+			[System.Threading.SpinWait]::SpinUntil({
+					$CdpPage.LoadingState['LoadEventFired'] -and
+					$CdpPage.LoadingState['FrameStoppedLoading']
+				}
+			)
+			# FirstPaint may not fire on all pages, use timeout (ms)
+			[System.Threading.SpinWait]::SpinUntil({
+					$CdpPage.LoadingState['FirstPaint']
+				}, 100
+			)
+		}
+
 		$Command = Get-Page.getFrameTree $CdpPage.TargetInfo['SessionId']
 
 		# Wait for frame tree to stabilize
@@ -731,21 +745,7 @@ class CdpServer {
 			$AllTreeInFrames.Count -ne $FilteredTree.Count
 		)
 
-		# Wait for main page to reach desired state
-		if (!$SkipForNewPage) {
-			[System.Threading.SpinWait]::SpinUntil({
-					$CdpPage.LoadingState['LoadEventFired'] -and
-					$CdpPage.LoadingState['FrameStoppedLoading']
-				}
-			)
-			# FirstPaint may not fire on all pages, use timeout (ms)
-			[System.Threading.SpinWait]::SpinUntil({
-					$CdpPage.LoadingState['FirstPaint']
-				}, 100
-			)
-		}
-
-		# Wait for all child frames to be ready
+		# Wait for all child frames to load
 		if ($CdpPage.Frames.Count -gt 0) {
 			foreach ($FrameId in $CdpPage.Frames.Keys) {
 				$Frame = $CdpPage.Frames[$FrameId]
