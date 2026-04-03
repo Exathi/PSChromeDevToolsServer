@@ -675,8 +675,8 @@ class CdpServer {
 			@{Name = 'method'; Expression = { if ($_.Value.method) { $_.Value.method } else { $CommandSnapshot[[int]$_.Value.id] } } },
 			@{Name = 'error'; Expression = { $_.Value.error } },
 			@{Name = 'sessionId'; Expression = { $_.Value.sessionId } },
-			@{Name = 'result'; Expression = { $_.Value.result } },
-			@{Name = 'params'; Expression = { $_.Value.params } }
+			@{Name = 'params'; Expression = { $_.Value.params } },
+			@{Name = 'result'; Expression = { $_.Value.result } }
 		)
 		return $Events
 	}
