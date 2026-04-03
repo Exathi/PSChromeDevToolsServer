@@ -196,8 +196,6 @@ class CdpEventHandler {
 	}
 
 	hidden [void]FrameNavigated($Response) {
-		# Write-Debug ('Frame Navigated: ({0})' -f ($Response | ConvertTo-Json -Depth 10))
-
 		$Callback = $this.SharedState.Callbacks['OnFrameNavigated']
 		if ($Callback) {
 			$Callback.Invoke($Response)
@@ -217,8 +215,6 @@ class CdpEventHandler {
 	}
 
 	hidden [void]FrameRequestedNavigation($Response) {
-		# Write-Debug ('Frame Requested Navigation: ({0})' -f ($Response | ConvertTo-Json -Depth 10))
-
 		$Callback = $this.SharedState.Callbacks['OnFrameRequestedNavigation']
 		if ($Callback) {
 			$Callback.Invoke($Response)
@@ -312,7 +308,6 @@ class CdpEventHandler {
 			$CdpPage.Url = $Target.Url
 			$CdpPage.Title = $Target.Title
 			$CdpPage.ProcessId = $Target.pid
-			# $CdpPage.Frames.Clear()
 		}
 
 		$Callback = $this.SharedState.Callbacks['OnTargetInfoChanged']
