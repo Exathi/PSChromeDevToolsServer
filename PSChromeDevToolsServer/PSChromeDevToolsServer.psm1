@@ -73,24 +73,27 @@ class CdpPage {
 		$this.BrowserContextId = $BrowserContextId
 		$this.CdpServer = $CdpServer
 
-		$this.TargetInfo.SessionId = $null
+		$this.TargetInfo['SessionId'] = $null
 
-		$this.LoadingEvents.IsLoading = $false
-		$this.LoadingEvents.DomContentEventFired = 0
-		$this.LoadingEvents.LoadEventFired = 0
-		$this.LoadingEvents.FrameStoppedLoading = 0
-		$this.LoadingEvents.FrameStartedLoading = 0
+		$this.ResetLoadingState()
 
-		$this.PageInfo.RuntimeUniqueId = $null
-		$this.PageInfo.ObjectId = $null
-		$this.PageInfo.Node = $null
-		$this.PageInfo.BoxModel = $null
+		$this.PageInfo['RuntimeUniqueId'] = $null
+		$this.PageInfo['ObjectId'] = $null
+		$this.PageInfo['Node'] = $null
+		$this.PageInfo['BoxModel'] = $null
 	}
 
 	[System.Collections.Concurrent.ConcurrentDictionary[string, object]]$TargetInfo = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
-	[System.Collections.Concurrent.ConcurrentDictionary[string, object]]$LoadingEvents = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
+	[System.Collections.Concurrent.ConcurrentDictionary[string, bool]]$LoadingState = [System.Collections.Concurrent.ConcurrentDictionary[string, bool]]::new()
 	[System.Collections.Concurrent.ConcurrentDictionary[string, object]]$Frames = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
 	[System.Collections.Concurrent.ConcurrentDictionary[string, object]]$PageInfo = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
+
+	[void]ResetLoadingState() {
+		$this.LoadingState['NetworkIdle'] = $false
+		$this.LoadingState['FrameStoppedLoading'] = $false
+		$this.LoadingState['LoadEventFired'] = $false
+		$this.LoadingState['FirstPaint'] = $false
+	}
 }
 
 class CdpFrame {
@@ -100,18 +103,21 @@ class CdpFrame {
 	[string]$RuntimeUniqueId
 
 	CdpFrame ($FrameId, $SessionId) {
-		$this.LoadingEvents.FrameStartedLoading = 0
-		$this.LoadingEvents.FrameStoppedLoading = 0
-		$this.LoadingEvents.IsLoading = $true
+		$this.LoadingState['FrameStoppedLoading'] = $false
+		$this.LoadingState['NetworkIdle'] = $false
 		$this.FrameId = $FrameId
 		$this.ParentFrameId = $null
 		$this.SessionId = $SessionId
 		$this.RuntimeUniqueId = $null
 	}
 
-	# so far not needed.
-	# $FrameInfo = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
-	$LoadingEvents = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
+	[System.Collections.Concurrent.ConcurrentDictionary[string, bool]]$LoadingState = [System.Collections.Concurrent.ConcurrentDictionary[string, bool]]::new()
+
+	[void]ResetLoadingState() {
+		$this.LoadingState['FrameStoppedLoading'] = $false
+		$this.LoadingState['NetworkIdle'] = $false
+		$this.LoadingState['FirstPaint'] = $false
+	}
 }
 
 
@@ -127,6 +133,7 @@ class CdpEventHandler {
 
 	hidden [void]InitializeHandlers() {
 		$this.EventHandlers = @{
+			'Page.lifecycleEvent' = $this.LifecycleEvent
 			'Page.domContentEventFired' = $this.DomContentEventFired
 			'Page.frameAttached' = $this.FrameAttached
 			'Page.frameDetached' = $this.FrameDetached
@@ -159,13 +166,43 @@ class CdpEventHandler {
 		# }
 	}
 
-	hidden [void]DomContentEventFired($Response) {
-		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
-		$CdpPage.LoadingEvents.AddOrUpdate('DomContentEventFired', 1, { param($Key, $OldValue) $OldValue + 1 })
-		if ($CdpPage.LoadingEvents.LoadEventFired -eq $CdpPage.LoadingEvents.DomContentEventFired) {
-			$CdpPage.LoadingEvents.AddOrUpdate('IsLoading', $false, { param($Key, $OldValue) $false })
+	hidden [void]LifecycleEvent($Response) {
+		$LifeCycleName = $Response.params.name
+		if ($LifeCycleName -eq 'networkIdle' -or $LifeCycleName -eq 'firstPaint') {
+			$CdpPage = $this.GetPageBySessionId($Response.sessionId)
+			if ($CdpPage.TargetId -eq $Response.params.frameId) {
+				switch ($LifeCycleName) {
+					'networkIdle' {
+						$CdpPage.LoadingState['NetworkIdle'] = $true
+						break
+					}
+					'firstPaint' {
+						$CdpPage.LoadingState['FirstPaint'] = $true
+						break
+					}
+				}
+			} else {
+				$Frame = $CdpPage.Frames.GetOrAdd($Response.params.frameId, [CdpFrame]::new($Response.params.frameId, $Response.sessionId))
+				switch ($LifeCycleName) {
+					'networkIdle' {
+						$Frame.LoadingState['NetworkIdle'] = $true
+						break
+					}
+					'firstPaint' {
+						$Frame.LoadingState['FirstPaint'] = $true
+						break
+					}
+				}
+			}
 		}
 
+		$Callback = $this.SharedState.Callbacks['OnLifecycleEvent']
+		if ($Callback) {
+			$Callback.Invoke($Response)
+		}
+	}
+
+	hidden [void]DomContentEventFired($Response) {
 		$Callback = $this.SharedState.Callbacks['OnDomContentEventFired']
 		if ($Callback) {
 			$Callback.Invoke($Response)
@@ -204,10 +241,8 @@ class CdpEventHandler {
 
 	hidden [void]LoadEventFired($Response) {
 		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
-		$CdpPage.LoadingEvents.AddOrUpdate('LoadEventFired', 1, { param($Key, $OldValue) $OldValue + 1 })
-		# if ($CdpPage.LoadingEvents.LoadEventFired -eq $CdpPage.LoadingEvents.DomContentEventFired) {
-		$CdpPage.LoadingEvents.AddOrUpdate('IsLoading', $false, { param($Key, $OldValue) $false })
-		# }
+		$CdpPage.LoadingState['LoadEventFired'] = $true
+
 		$Callback = $this.SharedState.Callbacks['OnLoadEventFired']
 		if ($Callback) {
 			$Callback.Invoke($Response)
@@ -222,17 +257,6 @@ class CdpEventHandler {
 	}
 
 	hidden [void]FrameStartedLoading($Response) {
-		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
-		if ($CdpPage.TargetId -eq $Response.params.frameId) {
-			$CdpPage.LoadingEvents.AddOrUpdate('FrameStartedLoading', 1, { param($Key, $OldValue) $OldValue + 1 })
-			$CdpPage.LoadingEvents.AddOrUpdate('IsLoading', $true, { param($Key, $OldValue) $true })
-		} else {
-			# this event can be emitted before a Page.frameAttached or Runtime.executionContextCreated...?
-			$Frame = $CdpPage.Frames.GetOrAdd($Response.params.frameId, [CdpFrame]::new($Response.params.frameId, $Response.sessionId))
-			$Frame.LoadingEvents.AddOrUpdate('FrameStartedLoading', 1, { param($Key, $OldValue) $OldValue + 1 })
-			$Frame.LoadingEvents.AddOrUpdate('IsLoading', $true, { param($Key, $OldValue) $true })
-		}
-
 		$Callback = $this.SharedState.Callbacks['OnFrameStartedLoading']
 		if ($Callback) {
 			$Callback.Invoke($Response)
@@ -241,10 +265,6 @@ class CdpEventHandler {
 
 	hidden [void]FrameStartedNavigating($Response) {
 		# earliest commitment to load and before Runtime.executionContextsCleared fires.
-		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
-		$CdpPage.LoadingEvents.AddOrUpdate('IsLoading', $true, { param($Key, $OldValue) $true })
-		# Write-Debug ('Frame Started Navigating: ({0})' -f ($Response | ConvertTo-Json -Depth 10))
-
 		$Callback = $this.SharedState.Callbacks['OnFrameStartedNavigating']
 		if ($Callback) {
 			$Callback.Invoke($Response)
@@ -254,13 +274,10 @@ class CdpEventHandler {
 	hidden [void]FrameStoppedLoading($Response) {
 		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
 		if ($CdpPage.TargetId -eq $Response.params.frameId) {
-			$CdpPage.LoadingEvents.AddOrUpdate('FrameStoppedLoading', 1, { param($Key, $OldValue) $OldValue + 1 })
-			$CdpPage.LoadingEvents.AddOrUpdate('IsLoading', $false, { param($Key, $OldValue) $false })
+			$CdpPage.LoadingState['FrameStoppedLoading'] = $true
 		} else {
-			# this event can be emitted before a Page.frameAttached or Runtime.executionContextCreated...?
 			$Frame = $CdpPage.Frames.GetOrAdd($Response.params.frameId, [CdpFrame]::new($Response.params.frameId, $Response.sessionId))
-			$Frame.LoadingEvents.AddOrUpdate('FrameStoppedLoading', 1, { param($Key, $OldValue) $OldValue + 1 })
-			$Frame.LoadingEvents.AddOrUpdate('IsLoading', $false, { param($Key, $OldValue) $false })
+			$Frame.LoadingState['FrameStoppedLoading'] = $true
 		}
 
 		$Callback = $this.SharedState.Callbacks['OnFrameStoppedLoading']
@@ -270,8 +287,6 @@ class CdpEventHandler {
 	}
 
 	hidden [void]NavigatedWithinDocument($Response) {
-		# Write-Debug ('Navigated Within Document: ({0})' -f ($Response | ConvertTo-Json -Depth 10))
-
 		$Callback = $this.SharedState.Callbacks['OnNavigatedWithinDocument']
 		if ($Callback) {
 			$Callback.Invoke($Response)
@@ -691,13 +706,16 @@ class CdpServer {
 		return $this.GetPageByTargetId($AvailableTarget.Value.TargetId)
 	}
 
-	[void]WaitForPageLoad([CdpPage]$CdpPage) {
-		$IsLoading = $null
-		[System.Threading.SpinWait]::SpinUntil({ $null = $CdpPage.LoadingEvents.TryGetValue('IsLoading', [ref]$IsLoading); $IsLoading -eq $false })
+	[void]WaitForPageLoad([CdpPage]$CdpPage, [bool]$SkipForNewPage) {
+		# Wait for NetworkIdle on main page
+		[System.Threading.SpinWait]::SpinUntil({
+				$CdpPage.LoadingState['NetworkIdle']
+			}
+		)
 
-		$Command = Get-Page.getFrameTree $CdpPage.TargetInfo.SessionId
+		$Command = Get-Page.getFrameTree $CdpPage.TargetInfo['SessionId']
 
-		# incases where the start page doesn't return anything
+		# Wait for frame tree to stabilize
 		$AllFramesInTree = $null
 		$AllTreeInFrames = $null
 		$FilteredTree = $null
@@ -705,16 +723,51 @@ class CdpServer {
 		do {
 			$Response = $this.SendCommand($Command, [WaitForResponse]::Message)
 			$Tree = Get-CdpFrames $Response.result.frameTree
-			$AllFramesInTree = $CdpPage.Frames.ToArray().Key | Where-Object { $_ -in $Tree.id }
+			$AllFramesInTree = $CdpPage.Frames.Keys | Where-Object { $_ -in $Tree.id }
 			$FilteredTree = $Tree.id | Where-Object { $_ -ne $CdpPage.TargetId }
-			$AllTreeInFrames = $FilteredTree | Where-Object { $_ -in $CdpPage.Frames.ToArray().Key }
+			$AllTreeInFrames = $FilteredTree | Where-Object { $_ -in $CdpPage.Frames.Keys }
 		} while (
 			$AllFramesInTree.Count -ne $CdpPage.Frames.Count -or
 			$AllTreeInFrames.Count -ne $FilteredTree.Count
 		)
 
-		# [System.Threading.SpinWait]::SpinUntil({ $CdpPage.Frames.Values.LoadingEvents.IsLoading -notcontains $true })
-		[System.Threading.SpinWait]::SpinUntil({ [System.Linq.Enumerable]::Sum([int[]]@($CdpPage.Frames.Values.LoadingEvents.IsLoading)) -eq 0 })
+		# Wait for main page to reach desired state
+		if (!$SkipForNewPage) {
+			[System.Threading.SpinWait]::SpinUntil({
+					$CdpPage.LoadingState['LoadEventFired'] -and
+					$CdpPage.LoadingState['FrameStoppedLoading']
+				}
+			)
+			# FirstPaint may not fire on all pages, use timeout (ms)
+			[System.Threading.SpinWait]::SpinUntil({
+					$CdpPage.LoadingState['FirstPaint']
+				}, 100
+			)
+		}
+
+		# Wait for all child frames to be ready
+		if ($CdpPage.Frames.Count -gt 0) {
+			foreach ($FrameId in $CdpPage.Frames.Keys) {
+				$Frame = $CdpPage.Frames[$FrameId]
+
+				if (!$SkipForNewPage) {
+					[System.Threading.SpinWait]::SpinUntil({
+							$Frame.LoadingState['FrameStoppedLoading']
+						}
+					)
+				}
+
+				[System.Threading.SpinWait]::SpinUntil({
+						$Frame.LoadingState['NetworkIdle']
+					}
+				)
+				# FirstPaint may not fire on all frames, use timeout (ms)
+				[System.Threading.SpinWait]::SpinUntil({
+						$Frame.LoadingState['FirstPaint']
+					}, 100
+				)
+			}
+		}
 	}
 
 	hidden [Delegate]CreateDelegate([System.Management.Automation.PSMethod]$Method) {
@@ -811,6 +864,16 @@ function Get-Page.getFrameTree {
 	@{
 		method = 'Page.getFrameTree'
 		sessionId = $SessionId
+	}
+}
+function Get-Page.setLifecycleEventsEnabled {
+	param($SessionId, [bool]$Enabled)
+	@{
+		method = 'Page.setLifecycleEventsEnabled'
+		sessionId = $SessionId
+		params = @{
+			enabled = $Enabled
+		}
 	}
 }
 
@@ -1104,13 +1167,10 @@ function New-CdpPage {
 		$Command = Get-Page.enable $SessionId
 		$null = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
 
-		$CdpServer.WaitForPageLoad($CdpPage)
-
-		$Command = Get-Runtime.enable $SessionId
+		$Command = Get-Page.setLifecycleEventsEnabled $SessionId $true
 		$null = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
 
-		$RuntimeUniqueId = $null
-		[System.Threading.SpinWait]::SpinUntil({ $null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$RuntimeUniqueId); $null -ne $RuntimeUniqueId })
+		$CdpServer.WaitForPageLoad($CdpPage, $true)
 
 		$CdpPage
 	}
@@ -1132,13 +1192,14 @@ function Invoke-CdpPageNavigate {
 
 	process {
 		$CdpServer = $CdpPage.CdpServer
-		$SessionId = $CdpPage.TargetInfo.SessionId
-		$OldRuntimeUniqueId = $CdpPage.PageInfo.RuntimeUniqueId
+		$SessionId = $CdpPage.TargetInfo['SessionId']
+		$OldRuntimeUniqueId = $CdpPage.PageInfo['RuntimeUniqueId']
+
+		$CdpPage.ResetLoadingState()
+		$CdpPage.Frames.Values.ForEach({ $_.ResetLoadingState() })
 
 		$Command = Get-Page.navigate $SessionId $Url
 		$null = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
-
-		$CdpServer.WaitForPageLoad($CdpPage)
 
 		$NewRuntimeUniqueId = $null
 		if ($null -ne $OldRuntimeUniqueId) {
@@ -1148,6 +1209,8 @@ function Invoke-CdpPageNavigate {
 				}
 			)
 		}
+
+		$CdpServer.WaitForPageLoad($CdpPage, $false)
 
 		$_
 	}
