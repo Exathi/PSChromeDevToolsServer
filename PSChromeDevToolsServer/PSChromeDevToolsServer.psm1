@@ -1370,7 +1370,9 @@ function Invoke-CdpInputSendKeys {
 function Invoke-CdpRuntimeEvaluate {
 	<#
 		.SYNOPSIS
-		Run javascript on the browser and return the raw response.
+		Run javascript on the browser and return the responses in:
+		$CdpPage.PageInfo['EvaluateResult'] = $Response.result.result
+		$CdpPage.PageInfo['EvaluateResponse'] = $Response
 		.PARAMETER Expression
 		The javascript expression to run.
 		.PARAMETER AwaitPromise
