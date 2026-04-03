@@ -353,7 +353,6 @@ class CdpEventHandler {
 
 	hidden [void]ExecutionContextsCleared($Response) {
 		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
-		$CdpPage.PageInfo.AddOrUpdate('RuntimeUniqueId', $null, { param($Key, $OldValue) $null } )
 		$CdpPage.Frames.Clear()
 
 		$Callback = $this.SharedState.Callbacks['OnExecutionContextsCleared']
