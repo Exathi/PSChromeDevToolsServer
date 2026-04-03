@@ -1100,16 +1100,11 @@ function New-CdpPage {
 		$SessionId = $null
 		[System.Threading.SpinWait]::SpinUntil({ $null = $CdpPage.TargetInfo.TryGetValue('SessionId', [ref]$SessionId); $null -ne $SessionId })
 
-		$BeforeLoadEventFired = $null
-		$WaitLoadEventFired = $null
-		$null = $CdpPage.LoadingEvents.TryGetValue('LoadEventFired', [ref]$BeforeLoadEventFired)
+		$Command = Get-Runtime.enable $SessionId
+		$null = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
 
-		[System.Threading.SpinWait]::SpinUntil(
-			{
-				$CdpPage.LoadingEvents.TryGetValue('LoadEventFired', [ref]$WaitLoadEventFired)
-				$BeforeLoadEventFired -ne $WaitLoadEventFired
-			}
-		)
+		$RuntimeUniqueId = $null
+		[System.Threading.SpinWait]::SpinUntil({ $null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$RuntimeUniqueId); $null -ne $RuntimeUniqueId })
 
 		$Command = Get-Page.enable $SessionId
 		$null = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
@@ -1151,10 +1146,8 @@ function Invoke-CdpPageNavigate {
 		$CdpServer.WaitForPageLoad($CdpPage)
 
 		$NewRuntimeUniqueId = $null
-		$null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$NewRuntimeUniqueId)
 		if ($null -ne $OldRuntimeUniqueId) {
-			[System.Threading.SpinWait]::SpinUntil(
-				{
+			[System.Threading.SpinWait]::SpinUntil({
 					$null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$NewRuntimeUniqueId)
 					$NewRuntimeUniqueId -ne $OldRuntimeUniqueId
 				}
@@ -1207,36 +1200,36 @@ function Invoke-CdpInputClickElement {
 
 	process {
 		$CdpServer = $CdpPage.CdpServer
-		$SessionId = $CdpPage.TargetInfo.SessionId
+		$SessionId = $CdpPage.TargetInfo['SessionId']
 
 		$Command = Get-Runtime.evaluate $SessionId $Selector
-		$Command.params.uniqueContextId = "$($CdpPage.PageInfo.RuntimeUniqueId)"
+		$Command.params.uniqueContextId = "$($CdpPage.PageInfo['RuntimeUniqueId'])"
 		$Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
-		$CdpPage.PageInfo.ObjectId = $Response.result.result.objectId
+		$CdpPage.PageInfo['ObjectId'] = $Response.result.result.objectId
 
 		if ($Click -le 0) { return $_ }
 
 		$Command = Get-DOM.describeNode $SessionId $CdpPage.PageInfo.ObjectId
-		$Command.params.objectId = $CdpPage.PageInfo.ObjectId
+		$Command.params.objectId = $CdpPage.PageInfo['ObjectId']
 		$Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
 
 		if ($Response.error) {
 			throw ('Error describing node: {0}' -f $Response.error.message)
 		}
 
-		$CdpPage.PageInfo.Node = $Response.result.node
+		$CdpPage.PageInfo['Node'] = $Response.result.node
 
-		$Command = Get-DOM.getBoxModel $SessionId $CdpPage.PageInfo.ObjectId
-		$Command.params.objectId = $CdpPage.PageInfo.ObjectId
+		$Command = Get-DOM.getBoxModel $SessionId $CdpPage.PageInfo['ObjectId']
+		$Command.params.objectId = $CdpPage.PageInfo['ObjectId']
 		$Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
-		$CdpPage.PageInfo.BoxModel = $Response.result.model
+		$CdpPage.PageInfo['BoxModel'] = $Response.result.model
 
 		if ($TopLeft) {
-			$PixelX = $CdpPage.PageInfo.BoxModel.content[0] + $OffsetX
-			$PixelY = $CdpPage.PageInfo.BoxModel.content[1] + $OffsetY
+			$PixelX = $CdpPage.PageInfo['BoxModel'].content[0] + $OffsetX
+			$PixelY = $CdpPage.PageInfo['BoxModel'].content[1] + $OffsetY
 		} else {
-			$PixelX = $CdpPage.PageInfo.BoxModel.content[0] + ($CdpPage.PageInfo.BoxModel.width / 2) + $OffsetX
-			$PixelY = $CdpPage.PageInfo.BoxModel.content[1] + ($CdpPage.PageInfo.BoxModel.height / 2) + $OffsetY
+			$PixelX = $CdpPage.PageInfo['BoxModel'].content[0] + ($CdpPage.PageInfo['BoxModel'].width / 2) + $OffsetX
+			$PixelY = $CdpPage.PageInfo['BoxModel'].content[1] + ($CdpPage.PageInfo['BoxModel'].height / 2) + $OffsetY
 		}
 
 		$Command = Get-Input.dispatchMouseEvent $SessionId 'mousePressed' $PixelX $PixelY 'left'
@@ -1254,8 +1247,7 @@ function Invoke-CdpInputClickElement {
 			$CdpServer.SendCommand($Command, [WaitForResponse]::CommandId)
 		)
 
-		[System.Threading.SpinWait]::SpinUntil(
-			{
+		[System.Threading.SpinWait]::SpinUntil({
 				$CommandResponse = $CommandIdWaiter.Where({ $CdpServer.SharedState.MessageHistory.ContainsKey([version]::new($_, 0)) })
 				$CommandResponse.Count -eq 2
 			}
@@ -1291,7 +1283,7 @@ function Invoke-CdpInputSendKeys {
 
 	process {
 		$CdpServer = $CdpPage.CdpServer
-		$SessionId = $CdpPage.TargetInfo.SessionId
+		$SessionId = $CdpPage.TargetInfo['SessionId']
 		$Command = Get-Input.DispatchKeyEvent $SessionId $null
 
 		if ($BringToFront) {
@@ -1307,8 +1299,7 @@ function Invoke-CdpInputSendKeys {
 		)
 
 		$KeyCount = $Keys.ToCharArray().Count
-		[System.Threading.SpinWait]::SpinUntil(
-			{
+		[System.Threading.SpinWait]::SpinUntil({
 				$CommandResponse = $CommandIdWaiter.Where({ $CdpServer.SharedState.MessageHistory.ContainsKey([version]::new($_, 0)) })
 				$CommandResponse.Count -eq $KeyCount
 			}
@@ -1373,13 +1364,16 @@ awaitMultiplePromises();
 
 	process {
 		$CdpServer = $CdpPage.CdpServer
-		$SessionId = $CdpPage.TargetInfo.SessionId
+		$SessionId = $CdpPage.TargetInfo['SessionId']
 		$Command = Get-Runtime.evaluate $SessionId $Expression
-		$Command.params.uniqueContextId = "$($CdpPage.PageInfo.RuntimeUniqueId)"
+		$Command.params.uniqueContextId = "$($CdpPage.PageInfo['RuntimeUniqueId'])"
 		if ($AwaitPromise) { $Command.params.awaitPromise = $true }
 		$Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
 
-		$Response
+		$CdpPage.PageInfo['EvaluateResult'] = $Response.result.result
+		$CdpPage.PageInfo['EvaluateResponse'] = $Response
+
+		$_
 	}
 }
 
@@ -1400,7 +1394,7 @@ function Invoke-CdpRuntimeAddBinding {
 
 	process {
 		$CdpServer = $CdpPage.CdpServer
-		$SessionId = $CdpPage.TargetInfo.SessionId
+		$SessionId = $CdpPage.TargetInfo['SessionId']
 		$Command = Get-Runtime.addBinding $SessionId $Name
 		$CdpServer.SendCommand($Command)
 
