@@ -728,6 +728,7 @@ class CdpServer {
 		$AllFramesInTree = $null
 		$AllTreeInFrames = $null
 		$FilteredTree = $null
+		$StableFramePasses = 0
 
 		do {
 			$Response = $this.SendCommand($Command, [WaitForResponse]::Message)
@@ -735,9 +736,13 @@ class CdpServer {
 			$AllFramesInTree = $CdpPage.Frames.Keys | Where-Object { $_ -in $Tree.id }
 			$FilteredTree = $Tree.id | Where-Object { $_ -ne $CdpPage.TargetId }
 			$AllTreeInFrames = $FilteredTree | Where-Object { $_ -in $CdpPage.Frames.Keys }
+			if ($AllFramesInTree.Count -eq $CdpPage.Frames.Count -and $AllTreeInFrames.Count -eq $FilteredTree.Count) {
+				$StableFramePasses++
+			} else { $StableFramePasses = 0 }
 		} while (
 			$AllFramesInTree.Count -ne $CdpPage.Frames.Count -or
-			$AllTreeInFrames.Count -ne $FilteredTree.Count
+			$AllTreeInFrames.Count -ne $FilteredTree.Count -or
+			$StableFramePasses -lt 3
 		)
 
 		# Wait for all child frames to load
@@ -745,12 +750,13 @@ class CdpServer {
 			foreach ($FrameId in $CdpPage.Frames.Keys) {
 				$Frame = $CdpPage.Frames[$FrameId]
 
-				if (!$SkipForNewPage) {
-					[System.Threading.SpinWait]::SpinUntil({
-							$Frame.LoadingState['FrameStoppedLoading']
-						}
-					)
-				}
+				# Not all frames fire FrameStoppedLoading?
+				# if (!$SkipForNewPage) {
+				# 	[System.Threading.SpinWait]::SpinUntil({
+				# 			$Frame.LoadingState['FrameStoppedLoading']
+				# 		}, 100
+				# 	)
+				# }
 
 				[System.Threading.SpinWait]::SpinUntil({
 						$Frame.LoadingState['NetworkIdle']
