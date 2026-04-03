@@ -103,8 +103,7 @@ class CdpFrame {
 	[string]$RuntimeUniqueId
 
 	CdpFrame ($FrameId, $SessionId) {
-		$this.LoadingState['FrameStoppedLoading'] = $false
-		$this.LoadingState['NetworkIdle'] = $false
+		$this.ResetLoadingState()
 		$this.FrameId = $FrameId
 		$this.ParentFrameId = $null
 		$this.SessionId = $SessionId
