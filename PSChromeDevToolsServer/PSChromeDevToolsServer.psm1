@@ -379,23 +379,15 @@ class CdpEventHandler {
 	}
 
 	[CdpPage]GetPageBySessionId([string]$SessionId) {
-		$Page = $null
-		while ($null -eq $Page) {
-			if (!$this.SharedState.Sessions.TryGetValue($SessionId, [ref]$Page)) {
-				Start-Sleep -Milliseconds 1
-			}
-		}
-		return $Page
+		$CdpPage = $null
+		[System.Threading.SpinWait]::SpinUntil({ $this.SharedState.Sessions.TryGetValue($SessionId, [ref]$CdpPage) })
+		return $CdpPage
 	}
 
 	[CdpPage]GetPageByTargetId([string]$TargetId) {
-		$Page = $null
-		while ($null -eq $Page) {
-			if (!$this.SharedState.Targets.TryGetValue($TargetId, [ref]$Page)) {
-				Start-Sleep -Milliseconds 1
-			}
-		}
-		return $Page
+		$CdpPage = $null
+		[System.Threading.SpinWait]::SpinUntil({ $this.SharedState.Targets.TryGetValue($TargetId, [ref]$CdpPage) })
+		return $CdpPage
 	}
 }
 
@@ -526,9 +518,7 @@ class CdpServer {
 					if ($Response.id) {
 						$LastCommandId = $Response.id
 					} else {
-						while (!$SharedState.TryGetValue('CommandId', [ref]$LastCommandId)) {
-							Start-Sleep -Milliseconds 1
-						}
+						[System.Threading.SpinWait]::SpinUntil({ $SharedState.TryGetValue('CommandId', [ref]$LastCommandId) })
 					}
 
 					do {
@@ -609,9 +599,7 @@ class CdpServer {
 			}
 			([WaitForResponse]::Message) {
 				$AwaitedMessage = $null
-				while (!$this.SharedState.MessageHistory.TryGetValue([version]::new($CommandId, 0), [ref]$AwaitedMessage)) {
-					Start-Sleep -Milliseconds 1
-				}
+				[System.Threading.SpinWait]::SpinUntil({ $this.SharedState.MessageHistory.TryGetValue([version]::new($CommandId, 0), [ref]$AwaitedMessage) })
 				$AwaitedMessage
 				break
 			}
@@ -625,23 +613,15 @@ class CdpServer {
 	}
 
 	[CdpPage]GetPageBySessionId([string]$SessionId) {
-		$Page = $null
-		while ($null -eq $Page) {
-			if (!$this.SharedState.Sessions.TryGetValue($SessionId, [ref]$Page)) {
-				Start-Sleep -Milliseconds 1
-			}
-		}
-		return $Page
+		$CdpPage = $null
+		[System.Threading.SpinWait]::SpinUntil({ $this.SharedState.Sessions.TryGetValue($SessionId, [ref]$CdpPage) })
+		return $CdpPage
 	}
 
 	[CdpPage]GetPageByTargetId([string]$TargetId) {
-		$Page = $null
-		while ($null -eq $Page) {
-			if (!$this.SharedState.Targets.TryGetValue($TargetId, [ref]$Page)) {
-				Start-Sleep -Milliseconds 1
-			}
-		}
-		return $Page
+		$CdpPage = $null
+		[System.Threading.SpinWait]::SpinUntil({ $this.SharedState.Targets.TryGetValue($TargetId, [ref]$CdpPage) })
+		return $CdpPage
 	}
 
 	[void]SendRuntimeEvaluate([string]$SessionId, [string]$Expression) {
@@ -662,24 +642,23 @@ class CdpServer {
 		$JsonCommand = Get-Target.setAutoAttach
 		$this.SendCommand($JsonCommand)
 
-		while ($this.SharedState.Targets.Count -eq 0) {
-			Start-Sleep -Milliseconds 1
-		}
+		[System.Threading.SpinWait]::SpinUntil({ $this.SharedState.Targets.Count -ne 0 })
 
 		$CdpPage = $this.GetFirstAvailableCdpPage()
+
 		$SessionId = $null
-		while ($null -eq $SessionId) {
-			$CdpPage.TargetInfo.TryGetValue('SessionId', [ref]$SessionId)
-			Start-Sleep -Milliseconds 1
-		}
+		[System.Threading.SpinWait]::SpinUntil({ $null = $CdpPage.TargetInfo.TryGetValue('SessionId', [ref]$SessionId); $null -ne $SessionId })
 
 		$JsonCommand = Get-Page.enable $SessionId
-		$this.SendCommand($JsonCommand)
+		$null = $this.SendCommand($JsonCommand, [WaitForResponse]::Message)
+
+		$this.WaitForPageLoad($CdpPage)
+
 		$JsonCommand = Get-Runtime.enable $SessionId
 		$null = $this.SendCommand($JsonCommand, [WaitForResponse]::Message)
 
 		$RuntimeUniqueId = $null
-		[System.Threading.SpinWait]::SpinUntil({ $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$RuntimeUniqueId); $null -ne $RuntimeUniqueId })
+		[System.Threading.SpinWait]::SpinUntil({ $null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$RuntimeUniqueId); $null -ne $RuntimeUniqueId })
 	}
 
 	[object]ShowMessageHistory() {
@@ -713,6 +692,32 @@ class CdpServer {
 			}
 		} while (!$AvailableTarget)
 		return $this.GetPageByTargetId($AvailableTarget.Value.TargetId)
+	}
+
+	[void]WaitForPageLoad([CdpPage]$CdpPage) {
+		$IsLoading = $null
+		[System.Threading.SpinWait]::SpinUntil({ $null = $CdpPage.LoadingEvents.TryGetValue('IsLoading', [ref]$IsLoading); $IsLoading -eq $false })
+
+		$Command = Get-Page.getFrameTree $CdpPage.TargetInfo.SessionId
+
+		# incases where the start page doesn't return anything
+		$AllFramesInTree = $null
+		$AllTreeInFrames = $null
+		$FilteredTree = $null
+
+		do {
+			$Response = $this.SendCommand($Command, [WaitForResponse]::Message)
+			$Tree = Get-CdpFrames $Response.result.frameTree
+			$AllFramesInTree = $CdpPage.Frames.ToArray().Key | Where-Object { $_ -in $Tree.id }
+			$FilteredTree = $Tree.id | Where-Object { $_ -ne $CdpPage.TargetId }
+			$AllTreeInFrames = $FilteredTree | Where-Object { $_ -in $CdpPage.Frames.ToArray().Key }
+		} while (
+			$AllFramesInTree.Count -ne $CdpPage.Frames.Count -or
+			$AllTreeInFrames.Count -ne $FilteredTree.Count
+		)
+
+		# [System.Threading.SpinWait]::SpinUntil({ $CdpPage.Frames.Values.LoadingEvents.IsLoading -notcontains $true })
+		[System.Threading.SpinWait]::SpinUntil({ [System.Linq.Enumerable]::Sum([int[]]@($CdpPage.Frames.Values.LoadingEvents.IsLoading)) -eq 0 })
 	}
 
 	hidden [Delegate]CreateDelegate([System.Management.Automation.PSMethod]$Method) {
@@ -1091,41 +1096,29 @@ function New-CdpPage {
 		$CdpPage = $CdpServer.GetPageByTargetId($Response.result.targetId)
 
 		$SessionId = $null
-		while ($null -eq $SessionId) {
-			$null = $CdpPage.TargetInfo.TryGetValue('SessionId', [ref]$SessionId)
-			Start-Sleep -Milliseconds 1
-		}
+		[System.Threading.SpinWait]::SpinUntil({ $null = $CdpPage.TargetInfo.TryGetValue('SessionId', [ref]$SessionId); $null -ne $SessionId })
+
+		$BeforeLoadEventFired = $null
+		$WaitLoadEventFired = $null
+		$null = $CdpPage.LoadingEvents.TryGetValue('LoadEventFired', [ref]$BeforeLoadEventFired)
+
+		[System.Threading.SpinWait]::SpinUntil(
+			{
+				$CdpPage.LoadingEvents.TryGetValue('LoadEventFired', [ref]$WaitLoadEventFired)
+				$BeforeLoadEventFired -ne $WaitLoadEventFired
+			}
+		)
 
 		$Command = Get-Page.enable $SessionId
 		$null = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+
+		$CdpServer.WaitForPageLoad($CdpPage)
+
 		$Command = Get-Runtime.enable $SessionId
 		$null = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
 
 		$RuntimeUniqueId = $null
-		while ($null -eq $RuntimeUniqueId) {
-			$null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$RuntimeUniqueId)
-			Start-Sleep -Milliseconds 1
-		}
-
-		$IsLoading = $null
-		$null = $CdpPage.LoadingEvents.TryGetValue('IsLoading', [ref]$IsLoading)
-		while ($IsLoading) {
-			Start-Sleep -Milliseconds 1
-			$null = $CdpPage.LoadingEvents.TryGetValue('IsLoading', [ref]$IsLoading)
-		}
-
-		$Command = Get-Page.getFrameTree $SessionId
-		do {
-			$Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
-			$Tree = Get-CdpFrames $Response.result.frameTree
-			$AllFramesInTree = $CdpPage.Frames.ToArray().Key | Where-Object { $_ -in $Tree.id }
-			$FilteredTree = $Tree.id | Where-Object { $_ -ne $CdpPage.TargetId } # there is always the target frame in $Tree that isn't tracked in $Frames
-			$AllTreeInFrames = $FilteredTree | Where-Object { $_ -in $CdpPage.Frames.ToArray().Key }
-		} while ($AllFramesInTree.Count -ne $CdpPage.Frames.Count -or $AllTreeInFrames.Count -ne ($FilteredTree.Count))
-
-		while ([System.Linq.Enumerable]::Sum([int[]]@($CdpPage.Frames.Values.LoadingEvents.IsLoading)) -gt 0) {
-			Start-Sleep -Milliseconds 1
-		}
+		[System.Threading.SpinWait]::SpinUntil({ $null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$RuntimeUniqueId); $null -ne $RuntimeUniqueId })
 
 		$CdpPage
 	}
@@ -1151,35 +1144,19 @@ function Invoke-CdpPageNavigate {
 		$OldRuntimeUniqueId = $CdpPage.PageInfo.RuntimeUniqueId
 
 		$Command = Get-Page.navigate $SessionId $Url
-		$CdpServer.SendCommand($Command)
+		$null = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+
+		$CdpServer.WaitForPageLoad($CdpPage)
 
 		$NewRuntimeUniqueId = $null
 		$null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$NewRuntimeUniqueId)
 		if ($null -ne $OldRuntimeUniqueId) {
-			while ($NewRuntimeUniqueId -eq $OldRuntimeUniqueId) {
-				Start-Sleep -Milliseconds 1
-				$null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$NewRuntimeUniqueId)
-			}
-		}
-
-		$IsLoading = $null
-		$null = $CdpPage.LoadingEvents.TryGetValue('IsLoading', [ref]$IsLoading)
-		while ($IsLoading) {
-			Start-Sleep -Milliseconds 1
-			$null = $CdpPage.LoadingEvents.TryGetValue('IsLoading', [ref]$IsLoading)
-		}
-
-		$Command = Get-Page.getFrameTree $SessionId
-		do {
-			$Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
-			$Tree = Get-CdpFrames $Response.result.frameTree
-			$AllFramesInTree = $CdpPage.Frames.ToArray().Key | Where-Object { $_ -in $Tree.id }
-			$FilteredTree = $Tree.id | Where-Object { $_ -ne $CdpPage.TargetId } # there is always the target frame in $Tree that isn't tracked in $Frames
-			$AllTreeInFrames = $FilteredTree | Where-Object { $_ -in $CdpPage.Frames.ToArray().Key }
-		} while ($AllFramesInTree.Count -ne $CdpPage.Frames.Count -or $AllTreeInFrames.Count -ne ($FilteredTree.Count))
-
-		while ([System.Linq.Enumerable]::Sum([int[]]@($CdpPage.Frames.Values.LoadingEvents.IsLoading)) -gt 0) {
-			Start-Sleep -Milliseconds 1
+			[System.Threading.SpinWait]::SpinUntil(
+				{
+					$null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$NewRuntimeUniqueId)
+					$NewRuntimeUniqueId -ne $OldRuntimeUniqueId
+				}
+			)
 		}
 
 		$_
