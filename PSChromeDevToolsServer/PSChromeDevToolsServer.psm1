@@ -522,11 +522,10 @@ class CdpServer {
 				$ResponseIndex = 1
 
 				foreach ($Response in $SharedState.IO.UnprocessedResponses.GetConsumingEnumerable()) {
-					$LastCommandId = $null
-					if ($Response.id) {
-						$LastCommandId = $Response.id
+					$LastCommandId = if ($Response.id) {
+						$Response.id
 					} else {
-						[System.Threading.SpinWait]::SpinUntil({ $SharedState.TryGetValue('CommandId', [ref]$LastCommandId) })
+						$SharedState.CommandId
 					}
 
 					do {
@@ -534,9 +533,6 @@ class CdpServer {
 							$SharedState.MessageHistory.TryAdd([version]::new($LastCommandId, 0), $Response)
 						} else {
 							$SharedState.MessageHistory.TryAdd([version]::new($LastCommandId, $ResponseIndex++), $Response)
-						}
-						if (!$SucessfullyAdded) {
-							Start-Sleep -Milliseconds 1
 						}
 					} while (!$SucessfullyAdded)
 
