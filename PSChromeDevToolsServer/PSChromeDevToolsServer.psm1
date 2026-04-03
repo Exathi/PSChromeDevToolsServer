@@ -284,7 +284,7 @@ class CdpEventHandler {
 
 	hidden [void]TargetCreated($Response) {
 		$Target = $Response.params.targetInfo
-		$CdpPage = [CdpPage]::new($Target.targetId, $Target.Url, $Target.Title, $Target.browserContextId, $this.SharedState.Server)
+		$CdpPage = [CdpPage]::new($Target.targetId, $Target.Url, $Target.Title, $Target.browserContextId, $this.SharedState.CdpServer)
 		$null = $this.SharedState.Targets.TryAdd($Target.targetId, $CdpPage)
 
 		$Callback = $this.SharedState.Callbacks['OnTargetCreated']
@@ -424,7 +424,7 @@ class CdpServer {
 			CommandQueue = [System.Collections.Concurrent.BlockingCollection[object]]::new()
 		}
 
-		$this.SharedState.Server = $this
+		$this.SharedState.CdpServer = $this
 		$this.SharedState.MessageHistory = [System.Collections.Concurrent.ConcurrentDictionary[version, object]]::new()
 		$this.SharedState.CommandId = 0
 		$this.SharedState.Targets = [System.Collections.Concurrent.ConcurrentDictionary[string, CdpPage]]::new()
@@ -625,22 +625,22 @@ class CdpServer {
 	}
 
 	[void]SendRuntimeEvaluate([string]$SessionId, [string]$Expression) {
-		$JsonCommand = @{
+		$Command = @{
 			method = 'Runtime.evaluate'
 			sessionId = $SessionId
 			params = @{
 				expression = $Expression
 			}
 		}
-		$this.SendCommand($JsonCommand)
+		$this.SendCommand($Command)
 	}
 
 	[void]EnableDefaultEvents() {
-		$JsonCommand = Get-Target.setDiscoverTargets
-		$this.SendCommand($JsonCommand)
+		$Command = Get-Target.setDiscoverTargets
+		$this.SendCommand($Command)
 
-		$JsonCommand = Get-Target.setAutoAttach
-		$this.SendCommand($JsonCommand)
+		$Command = Get-Target.setAutoAttach
+		$this.SendCommand($Command)
 
 		[System.Threading.SpinWait]::SpinUntil({ $this.SharedState.Targets.Count -ne 0 })
 
@@ -649,16 +649,19 @@ class CdpServer {
 		$SessionId = $null
 		[System.Threading.SpinWait]::SpinUntil({ $null = $CdpPage.TargetInfo.TryGetValue('SessionId', [ref]$SessionId); $null -ne $SessionId })
 
-		$JsonCommand = Get-Page.enable $SessionId
-		$null = $this.SendCommand($JsonCommand, [WaitForResponse]::Message)
-
-		$this.WaitForPageLoad($CdpPage)
-
-		$JsonCommand = Get-Runtime.enable $SessionId
-		$null = $this.SendCommand($JsonCommand, [WaitForResponse]::Message)
+		$Command = Get-Runtime.enable $SessionId
+		$null = $this.SendCommand($Command, [WaitForResponse]::Message)
 
 		$RuntimeUniqueId = $null
 		[System.Threading.SpinWait]::SpinUntil({ $null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$RuntimeUniqueId); $null -ne $RuntimeUniqueId })
+
+		$Command = Get-Page.enable $SessionId
+		$null = $this.SendCommand($Command, [WaitForResponse]::Message)
+
+		$Command = Get-Page.setLifecycleEventsEnabled $SessionId $true
+		$null = $this.SendCommand($Command, [WaitForResponse]::Message)
+
+		$this.WaitForPageLoad($CdpPage, $true)
 	}
 
 	[object]ShowMessageHistory() {
