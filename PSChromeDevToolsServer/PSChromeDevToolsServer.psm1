@@ -1182,7 +1182,7 @@ function Invoke-CdpInputClickElement {
 			# message=uniqueContextId not found
 			# Wait for new context in rare cases because Runtime.executionContextCreated has not been processed for the new page but Runtime.evaluate is called.
 			$NewId = $null
-			[System.Threading.SpinWait]::SpinUntil({ $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$NewId); $NewId -ne $Command.params.uniqueContextId })
+			[System.Threading.SpinWait]::SpinUntil({ $null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$NewId); $NewId -ne $Command.params.uniqueContextId })
 			$Command.params.uniqueContextId = "$NewId"
 			$Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
 		}
@@ -1358,7 +1358,7 @@ awaitMultiplePromises();
 			# message=uniqueContextId not found
 			# Wait for new context in rare cases because Runtime.executionContextCreated has not been processed for the new page but Runtime.evaluate is called.
 			$NewId = $null
-			[System.Threading.SpinWait]::SpinUntil({ $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$NewId); $NewId -ne $Command.params.uniqueContextId })
+			[System.Threading.SpinWait]::SpinUntil({ $null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$NewId); $NewId -ne $Command.params.uniqueContextId })
 			$Command.params.uniqueContextId = "$NewId"
 			$Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
 		}
