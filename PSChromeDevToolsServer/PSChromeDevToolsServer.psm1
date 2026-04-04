@@ -159,13 +159,17 @@ class CdpEventHandler {
 
 	[void]ProcessEvent($Response) {
 		if ($null -eq $Response.method) { return }
-		$handler = $this.EventHandlers[$Response.method]
-		if ($handler) {
-			$handler.Invoke($Response)
+		$Handler = $this.EventHandlers[$Response.method]
+		if ($Handler) {
+			$Handler.Invoke($Response)
 		}
 		# else {
 		# 	Write-Debug ('Unprocessed Event: ({0})' -f $Response.method)
 		# }
+		$Callback = $this.SharedState.Callbacks["On$($Response.method.Split('.')[1])".ToUpper()]
+		if ($Callback) {
+			$Callback.Invoke($Response)
+		}
 	}
 
 	hidden [void]LifecycleEvent($Response) {
@@ -446,7 +450,8 @@ class CdpServer {
 		$this.SharedState.Callbacks = [System.Collections.Generic.Dictionary[string, scriptblock]]::new()
 
 		foreach ($Key in $Callbacks.Keys) {
-			$this.SharedState.Callbacks[$Key] = $Callbacks[$Key]
+			$UpperKey = $Key.ToUpper()
+			$this.SharedState.Callbacks[$UpperKey] = $Callbacks[$UpperKey]
 		}
 
 		$this.SharedState.Commands = @{
