@@ -93,6 +93,7 @@ class CdpPage {
 		$this.LoadingState['FrameStoppedLoading'] = $false
 		$this.LoadingState['LoadEventFired'] = $false
 		$this.LoadingState['FirstPaint'] = $false
+		$this.LoadingState['FrameNavigated'] = $true
 	}
 }
 
@@ -116,6 +117,7 @@ class CdpFrame {
 		$this.LoadingState['FrameStoppedLoading'] = $false
 		$this.LoadingState['NetworkIdle'] = $false
 		$this.LoadingState['FirstPaint'] = $false
+		$this.LoadingState['FrameNavigated'] = $true
 	}
 }
 
@@ -136,7 +138,8 @@ class CdpEventHandler {
 			'Page.domContentEventFired' = $this.DomContentEventFired
 			'Page.frameAttached' = $this.FrameAttached
 			'Page.frameDetached' = $this.FrameDetached
-			'Page.frameNavigated' = $this.FrameNavigated
+			'Page.FrameNavigated' = $this.FrameNavigated
+			'Page.lifecycleEvent' = $this.LifecycleEvent
 			'Page.loadEventFired' = $this.LoadEventFired
 			'Page.frameRequestedNavigation' = $this.FrameRequestedNavigation
 			'Page.frameStartedLoading' = $this.FrameStartedLoading
@@ -232,9 +235,12 @@ class CdpEventHandler {
 	}
 
 	hidden [void]FrameNavigated($Response) {
-		$Callback = $this.SharedState.Callbacks['OnFrameNavigated']
-		if ($Callback) {
-			$Callback.Invoke($Response)
+		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
+		if ($CdpPage.TargetId -eq $Response.params.frame.id) {
+			$CdpPage.LoadingState['FrameNavigated'] = $true
+		} else {
+			$Frame = $CdpPage.Frames.GetOrAdd($Response.params.frame.id, [CdpFrame]::new($Response.params.frame.id, $Response.sessionId))
+			$Frame.LoadingState['FrameNavigated'] = $true
 		}
 	}
 
@@ -702,6 +708,13 @@ class CdpServer {
 	}
 
 	[void]WaitForPageLoad([CdpPage]$CdpPage, [bool]$SkipForNewPage) {
+		if (!$CdpPage.LoadingState['FrameNavigated']) {
+			[System.Threading.SpinWait]::SpinUntil({
+					$CdpPage.LoadingState['FrameNavigated']
+				}
+			)
+		}
+
 		# Wait for NetworkIdle on main page
 		[System.Threading.SpinWait]::SpinUntil({
 				$CdpPage.LoadingState['NetworkIdle']
@@ -757,6 +770,12 @@ class CdpServer {
 				# 		}, 100
 				# 	)
 				# }
+				if (!$Frame.LoadingState['FrameNavigated']) {
+					[System.Threading.SpinWait]::SpinUntil({
+							$Frame.LoadingState['FrameNavigated']
+						}
+					)
+				}
 
 				[System.Threading.SpinWait]::SpinUntil({
 						$Frame.LoadingState['NetworkIdle']
