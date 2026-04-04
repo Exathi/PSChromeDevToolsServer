@@ -723,7 +723,7 @@ class CdpServer {
 		# Wait for NetworkIdle on main page
 		[System.Threading.SpinWait]::SpinUntil({
 				$CdpPage.LoadingState['NetworkIdle']
-			}
+			}, 500
 		)
 
 		# Wait for main page to load
@@ -734,39 +734,20 @@ class CdpServer {
 				}
 			)
 			# FirstPaint may not fire on all pages, use timeout (ms)
+			# All pages that have content will paint.
+			# Pages with an empty or no body will not paint.
+			# All frames that have no size will not paint.
 			[System.Threading.SpinWait]::SpinUntil({
 					$CdpPage.LoadingState['FirstPaint']
-				}, 100
+				}, 500
 			)
 		}
-
-		$Command = Get-Page.getFrameTree $CdpPage.TargetInfo['SessionId']
-
-		# Wait for frame tree to stabilize
-		$AllFramesInTree = $null
-		$AllTreeInFrames = $null
-		$FilteredTree = $null
-		$StableFramePasses = 0
-
-		do {
-			$Response = $this.SendCommand($Command, [WaitForResponse]::Message)
-			$Tree = Get-CdpFrames $Response.result.frameTree
-			$AllFramesInTree = $CdpPage.Frames.Keys | Where-Object { $_ -in $Tree.id }
-			$FilteredTree = $Tree.id | Where-Object { $_ -ne $CdpPage.TargetId }
-			$AllTreeInFrames = $FilteredTree | Where-Object { $_ -in $CdpPage.Frames.Keys }
-			if ($AllFramesInTree.Count -eq $CdpPage.Frames.Count -and $AllTreeInFrames.Count -eq $FilteredTree.Count) {
-				$StableFramePasses++
-			} else { $StableFramePasses = 0 }
-		} while (
-			$AllFramesInTree.Count -ne $CdpPage.Frames.Count -or
-			$AllTreeInFrames.Count -ne $FilteredTree.Count -or
-			$StableFramePasses -lt 3
-		)
 
 		# Wait for all child frames to load
 		if ($CdpPage.Frames.Count -gt 0) {
 			foreach ($FrameId in $CdpPage.Frames.Keys) {
 				$Frame = $CdpPage.Frames[$FrameId]
+				if ($null -eq $Frame) { continue }
 
 				# Not all frames fire FrameStoppedLoading?
 				# if (!$SkipForNewPage) {
@@ -784,12 +765,12 @@ class CdpServer {
 
 				[System.Threading.SpinWait]::SpinUntil({
 						$Frame.LoadingState['NetworkIdle']
-					}
+					}, 500
 				)
 				# FirstPaint may not fire on all frames, use timeout (ms)
 				[System.Threading.SpinWait]::SpinUntil({
 						$Frame.LoadingState['FirstPaint']
-					}, 100
+					}, 500
 				)
 			}
 		}
