@@ -134,24 +134,18 @@ class CdpEventHandler {
 
 	hidden [void]InitializeHandlers() {
 		$this.EventHandlers = @{
-			'Page.lifecycleEvent' = $this.LifecycleEvent
-			'Page.domContentEventFired' = $this.DomContentEventFired
 			'Page.frameAttached' = $this.FrameAttached
 			'Page.frameDetached' = $this.FrameDetached
 			'Page.FrameNavigated' = $this.FrameNavigated
 			'Page.lifecycleEvent' = $this.LifecycleEvent
 			'Page.loadEventFired' = $this.LoadEventFired
-			'Page.frameRequestedNavigation' = $this.FrameRequestedNavigation
-			'Page.frameStartedLoading' = $this.FrameStartedLoading
 			'Page.frameStartedNavigating' = $this.FrameStartedNavigating
 			'Page.frameStoppedLoading' = $this.FrameStoppedLoading
-			'Page.navigatedWithinDocument' = $this.NavigatedWithinDocument
 			'Target.targetCreated' = $this.TargetCreated
 			'Target.targetDestroyed' = $this.TargetDestroyed
 			'Target.targetInfoChanged' = $this.TargetInfoChanged
 			'Target.attachedToTarget' = $this.AttachedToTarget
 			'Target.detachedFromTarget' = $this.DetachedFromTarget
-			'Runtime.bindingCalled' = $this.BindingCalled
 			'Runtime.executionContextsCleared' = $this.ExecutionContextsCleared
 			'Runtime.executionContextCreated' = $this.ExecutionContextCreated
 		}
@@ -176,42 +170,21 @@ class CdpEventHandler {
 		$LifeCycleName = $Response.params.name
 		if ($LifeCycleName -eq 'networkIdle' -or $LifeCycleName -eq 'firstPaint') {
 			$CdpPage = $this.GetPageBySessionId($Response.sessionId)
-			if ($CdpPage.TargetId -eq $Response.params.frameId) {
-				switch ($LifeCycleName) {
-					'networkIdle' {
-						$CdpPage.LoadingState['NetworkIdle'] = $true
-						break
-					}
-					'firstPaint' {
-						$CdpPage.LoadingState['FirstPaint'] = $true
-						break
-					}
-				}
+			$Target = if ($CdpPage.TargetId -eq $Response.params.frameId) {
+				$CdpPage
 			} else {
-				$Frame = $CdpPage.Frames.GetOrAdd($Response.params.frameId, [CdpFrame]::new($Response.params.frameId, $Response.sessionId))
-				switch ($LifeCycleName) {
-					'networkIdle' {
-						$Frame.LoadingState['NetworkIdle'] = $true
-						break
-					}
-					'firstPaint' {
-						$Frame.LoadingState['FirstPaint'] = $true
-						break
-					}
+				$CdpPage.Frames.GetOrAdd($Response.params.frameId, [CdpFrame]::new($Response.params.frameId, $Response.sessionId))
+			}
+			switch ($LifeCycleName) {
+				'networkIdle' {
+					$Target.LoadingState['NetworkIdle'] = $true
+					break
+				}
+				'firstPaint' {
+					$Target.LoadingState['FirstPaint'] = $true
+					break
 				}
 			}
-		}
-
-		$Callback = $this.SharedState.Callbacks['OnLifecycleEvent']
-		if ($Callback) {
-			$Callback.Invoke($Response)
-		}
-	}
-
-	hidden [void]DomContentEventFired($Response) {
-		$Callback = $this.SharedState.Callbacks['OnDomContentEventFired']
-		if ($Callback) {
-			$Callback.Invoke($Response)
 		}
 	}
 
@@ -219,23 +192,20 @@ class CdpEventHandler {
 		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
 		$Frame = $CdpPage.Frames.GetOrAdd($Response.params.frameId, [CdpFrame]::new($Response.params.frameId, $Response.sessionId))
 		$Frame.ParentFrameId = $Response.params.parentFrameId
-
-		$Callback = $this.SharedState.Callbacks['OnFrameAttached']
-		if ($Callback) {
-			$Callback.Invoke($Response)
-		}
 	}
 
 	hidden [void]FrameDetached($Response) {
 		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
-		if ($CdpPage -and $Response.params.reason -eq 'remove') {
-			$null = $CdpPage.Frames.TryRemove($Response.params.frameId, [ref]$null)
+		# 'remove' 'swap'
+		# if ($CdpPage -and $Response.params.reason -eq 'remove') {
+		$CdpFrame = $null
+		if ($CdpPage.Frames.TryRemove($Response.params.frameId, [ref]$CdpFrame)) {
+			$CdpFrame.LoadingState['FrameStoppedLoading'] = $true
+			$CdpFrame.LoadingState['NetworkIdle'] = $true
+			$CdpFrame.LoadingState['FirstPaint'] = $true
+			$CdpFrame.LoadingState['FrameNavigated'] = $true
 		}
-
-		$Callback = $this.SharedState.Callbacks['OnFrameDetached']
-		if ($Callback) {
-			$Callback.Invoke($Response)
-		}
+		# }
 	}
 
 	hidden [void]FrameNavigated($Response) {
@@ -251,32 +221,15 @@ class CdpEventHandler {
 	hidden [void]LoadEventFired($Response) {
 		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
 		$CdpPage.LoadingState['LoadEventFired'] = $true
-
-		$Callback = $this.SharedState.Callbacks['OnLoadEventFired']
-		if ($Callback) {
-			$Callback.Invoke($Response)
-		}
-	}
-
-	hidden [void]FrameRequestedNavigation($Response) {
-		$Callback = $this.SharedState.Callbacks['OnFrameRequestedNavigation']
-		if ($Callback) {
-			$Callback.Invoke($Response)
-		}
-	}
-
-	hidden [void]FrameStartedLoading($Response) {
-		$Callback = $this.SharedState.Callbacks['OnFrameStartedLoading']
-		if ($Callback) {
-			$Callback.Invoke($Response)
-		}
 	}
 
 	hidden [void]FrameStartedNavigating($Response) {
-		# earliest commitment to load and before Runtime.executionContextsCleared fires.
-		$Callback = $this.SharedState.Callbacks['OnFrameStartedNavigating']
-		if ($Callback) {
-			$Callback.Invoke($Response)
+		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
+		if ($CdpPage.TargetId -eq $Response.params.frameId) {
+			$CdpPage.LoadingState['FrameNavigated'] = $false
+		} else {
+			$Frame = $CdpPage.Frames.GetOrAdd($Response.params.frameId, [CdpFrame]::new($Response.params.frameId, $Response.sessionId))
+			$Frame.LoadingState['FrameNavigated'] = $false
 		}
 	}
 
@@ -284,21 +237,11 @@ class CdpEventHandler {
 		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
 		if ($CdpPage.TargetId -eq $Response.params.frameId) {
 			$CdpPage.LoadingState['FrameStoppedLoading'] = $true
+			$CdpPage.LoadingState['FrameNavigated'] = $true
 		} else {
 			$Frame = $CdpPage.Frames.GetOrAdd($Response.params.frameId, [CdpFrame]::new($Response.params.frameId, $Response.sessionId))
 			$Frame.LoadingState['FrameStoppedLoading'] = $true
-		}
-
-		$Callback = $this.SharedState.Callbacks['OnFrameStoppedLoading']
-		if ($Callback) {
-			$Callback.Invoke($Response)
-		}
-	}
-
-	hidden [void]NavigatedWithinDocument($Response) {
-		$Callback = $this.SharedState.Callbacks['OnNavigatedWithinDocument']
-		if ($Callback) {
-			$Callback.Invoke($Response)
+			$Frame.LoadingState['FrameNavigated'] = $true
 		}
 	}
 
@@ -306,22 +249,12 @@ class CdpEventHandler {
 		$Target = $Response.params.targetInfo
 		$CdpPage = [CdpPage]::new($Target.targetId, $Target.Url, $Target.Title, $Target.browserContextId, $this.SharedState.CdpServer)
 		$null = $this.SharedState.Targets.TryAdd($Target.targetId, $CdpPage)
-
-		$Callback = $this.SharedState.Callbacks['OnTargetCreated']
-		if ($Callback) {
-			$Callback.Invoke($Response)
-		}
 	}
 
 	hidden [void]TargetDestroyed($Response) {
 		$CdpPage = $this.GetPageByTargetId($Response.params.targetId)
 		if ($CdpPage) {
 			$null = $this.SharedState.Targets.TryRemove($CdpPage.TargetId, [ref]$null)
-		}
-
-		$Callback = $this.SharedState.Callbacks['OnTargetDestroyed']
-		if ($Callback) {
-			$Callback.Invoke($Response)
 		}
 	}
 
@@ -333,11 +266,6 @@ class CdpEventHandler {
 			$CdpPage.Title = $Target.Title
 			$CdpPage.ProcessId = $Target.pid
 		}
-
-		$Callback = $this.SharedState.Callbacks['OnTargetInfoChanged']
-		if ($Callback) {
-			$Callback.Invoke($Response)
-		}
 	}
 
 	hidden [void]AttachedToTarget($Response) {
@@ -345,39 +273,17 @@ class CdpEventHandler {
 		$CdpPage = $this.GetPageByTargetId($Target.targetId)
 		$CdpPage.TargetInfo.AddOrUpdate('SessionId', $Response.params.sessionId, { param($Key, $OldValue) $Response.params.sessionId })
 		$null = $this.SharedState.Sessions.TryAdd($Response.params.sessionId, $CdpPage)
-
-		$Callback = $this.SharedState.Callbacks['OnAttachedToTarget']
-		if ($Callback) {
-			$Callback.Invoke($Response)
-		}
 	}
 
 	hidden [void]DetachedFromTarget($Response) {
 		$CdpPage = $this.GetPageBySessionId($Response.params.sessionId)
 		$CdpPage.TargetInfo.AddOrUpdate('SessionId', $null, { param($Key, $OldValue) $null })
 		$null = $this.SharedState.Sessions.TryRemove($Response.params.sessionId, [ref]$null)
-
-		$Callback = $this.SharedState.Callbacks['OnDetachedFromTarget']
-		if ($Callback) {
-			$Callback.Invoke($Response)
-		}
-	}
-
-	hidden [void]BindingCalled($Response) {
-		$Callback = $this.SharedState.Callbacks['OnBindingCalled']
-		if ($Callback) {
-			$Callback.Invoke($Response)
-		}
 	}
 
 	hidden [void]ExecutionContextsCleared($Response) {
 		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
 		$CdpPage.Frames.Clear()
-
-		$Callback = $this.SharedState.Callbacks['OnExecutionContextsCleared']
-		if ($Callback) {
-			$Callback.Invoke($Response)
-		}
 	}
 
 	hidden [void]ExecutionContextCreated($Response) {
@@ -388,11 +294,6 @@ class CdpEventHandler {
 		} else {
 			$Frame = $CdpPage.Frames.GetOrAdd($FrameId, [CdpFrame]::new($FrameId, $Response.sessionId))
 			$Frame.RuntimeUniqueId = $Response.params.context.uniqueId
-		}
-
-		$Callback = $this.SharedState.Callbacks['OnExecutionContextCreated']
-		if ($Callback) {
-			$Callback.Invoke($Response)
 		}
 	}
 
