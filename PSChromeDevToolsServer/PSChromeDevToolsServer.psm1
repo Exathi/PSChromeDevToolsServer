@@ -108,9 +108,10 @@ class CdpFrame {
 		$this.FrameId = $FrameId
 		$this.ParentFrameId = $null
 		$this.SessionId = $SessionId
-		$this.RuntimeUniqueId = $null
+		$this.PageInfo['RuntimeUniqueId'] = $null
 	}
 
+	[System.Collections.Concurrent.ConcurrentDictionary[string, object]]$PageInfo = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
 	[System.Collections.Concurrent.ConcurrentDictionary[string, bool]]$LoadingState = [System.Collections.Concurrent.ConcurrentDictionary[string, bool]]::new()
 
 	[void]ResetLoadingState() {
@@ -293,7 +294,7 @@ class CdpEventHandler {
 			$CdpPage.PageInfo.AddOrUpdate('RuntimeUniqueId', $Response.params.context.uniqueId, { param($Key, $OldValue) $Response.params.context.uniqueId } )
 		} else {
 			$Frame = $CdpPage.Frames.GetOrAdd($FrameId, [CdpFrame]::new($FrameId, $Response.sessionId))
-			$Frame.RuntimeUniqueId = $Response.params.context.uniqueId
+			$Frame.PageInfo['RuntimeUniqueId'] = $Response.params.context.uniqueId
 		}
 	}
 
@@ -646,6 +647,12 @@ class CdpServer {
 
 		# Wait for all child frames to load
 		if ($CdpPage.Frames.Count -gt 0) {
+			[System.Threading.SpinWait]::SpinUntil({
+					$RuntimeUniqueIdSnapshot = $CdpPage.Frames.Values.PageInfo.RuntimeUniqueId
+					$null -notin $RuntimeUniqueIdSnapshot
+				}
+			)
+
 			foreach ($FrameId in $CdpPage.Frames.Keys) {
 				$Frame = $CdpPage.Frames[$FrameId]
 				if ($null -eq $Frame) { continue }
