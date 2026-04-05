@@ -165,28 +165,6 @@ class CdpEventHandler {
 		}
 	}
 
-	hidden [void]LifecycleEvent($Response) {
-		$LifeCycleName = $Response.params.name
-		if ($LifeCycleName -eq 'networkIdle' -or $LifeCycleName -eq 'firstPaint') {
-			$CdpPage = $this.GetPageBySessionId($Response.sessionId)
-			$Target = if ($CdpPage.TargetId -eq $Response.params.frameId) {
-				$CdpPage
-			} else {
-				$CdpPage.Frames.GetOrAdd($Response.params.frameId, [CdpFrame]::new($Response.params.frameId, $Response.sessionId))
-			}
-			switch ($LifeCycleName) {
-				'networkIdle' {
-					$Target.LoadingState['NetworkIdle'] = $true
-					break
-				}
-				'firstPaint' {
-					$Target.LoadingState['FirstPaint'] = $true
-					break
-				}
-			}
-		}
-	}
-
 	hidden [void]FrameAttached($Response) {
 		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
 		$Frame = $CdpPage.Frames.GetOrAdd($Response.params.frameId, [CdpFrame]::new($Response.params.frameId, $Response.sessionId))
@@ -207,9 +185,28 @@ class CdpEventHandler {
 		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
 		if ($CdpPage.TargetId -eq $Response.params.frame.id) {
 			$CdpPage.LoadingState['FrameNavigated'] = $true
+		}
+	}
+
+	hidden [void]LifecycleEvent($Response) {
+		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
+		$Target = if ($CdpPage.TargetId -eq $Response.params.frameId) {
+			$CdpPage
 		} else {
-			$Frame = $CdpPage.Frames.GetOrAdd($Response.params.frame.id, [CdpFrame]::new($Response.params.frame.id, $Response.sessionId))
-			$Frame.LoadingState['FrameNavigated'] = $true
+			$CdpPage.Frames.GetOrAdd($Response.params.frameId, [CdpFrame]::new($Response.params.frameId, $Response.sessionId))
+		}
+		$LifeCycleName = $Response.params.name
+		if ($LifeCycleName -eq 'networkIdle' -or $LifeCycleName -eq 'firstPaint') {
+			switch ($LifeCycleName) {
+				'networkIdle' {
+					$Target.LoadingState['NetworkIdle'] = $true
+					break
+				}
+				'firstPaint' {
+					$Target.LoadingState['FirstPaint'] = $true
+					break
+				}
+			}
 		}
 	}
 
