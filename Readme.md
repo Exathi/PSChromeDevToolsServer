@@ -18,6 +18,8 @@ Start-CdpServer - Launch browser and returns the first `[CdpPage]`.
 
 Stop-CdpServer - Close browser and dispose pipes, processes, runspace pool.
 
+Get-CdpFrame - Tries to find a frame matching the provided url to be used with `Wait-CdpLifecycleEvent`. Returns a pscustomobject with `[CdpPage]` and `[CdpFrame]`
+
 New-CdpPage - Create new page/tab and returns `[CdpPage]`.
 
 Invoke-CdpPageNavigate - Navigate page and waits for the page to load and the unique javascript context to update for the new page.
@@ -29,6 +31,8 @@ Invoke-CdpInputSendKeys - Sends keys to browser.
 Invoke-CdpRuntimeEvaluate - Run javascript on browser and return raw result.
 
 Invoke-CdpRuntimeAddBinding - Add binding object to enable browser communication to the `[CdpEventHandler]`.
+
+Wait-CdpLifecycleEvent - `[CdpPage]` or output from `Get-CdpFrame` to wait for a LifeCycleEvent.
 
 ConvertTo-Delegate - Used to convert PSMethods to delegates for Windows Powershell. See `Example Async.ps1`.
 

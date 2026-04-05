@@ -1316,6 +1316,16 @@ function Invoke-CdpRuntimeAddBinding {
 }
 
 function Wait-CdpLifecycleEvent {
+	<#
+		.SYNOPSIS
+		Waits for provided LifecycleEvents.
+		.PARAMETER InputObject
+		The CdpPage or [pscustomobject]@{CdpPage; CdpFrame} from Get-CdpFrame.
+		.PARAMETER Events
+		The LifecycleEvent to wait for.
+		.PARAMETER Timeout
+		Max time to wait(ms) before giving up.
+	#>
 	[CmdletBinding()]
 	param(
 		[Parameter(Mandatory, ValueFromPipeline)]
@@ -1344,6 +1354,14 @@ function Wait-CdpLifecycleEvent {
 }
 
 function Get-CdpFrame {
+	<#
+		.SYNOPSIS
+		Gets a frame from the Frametree if it exists.
+		.PARAMETER Url
+		The regex pattern of a url to look for
+		.PARAMETER Timeout
+		Max time to wait(ms) before giving up.
+	#>
 	[CmdletBinding()]
 	param(
 		[Parameter(Mandatory, ValueFromPipeline)]
