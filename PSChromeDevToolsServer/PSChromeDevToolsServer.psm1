@@ -101,7 +101,6 @@ class CdpFrame {
 	[string]$FrameId
 	[string]$ParentFrameId
 	[string]$SessionId
-	[string]$RuntimeUniqueId
 
 	CdpFrame ($FrameId, $SessionId) {
 		$this.ResetLoadingState()
