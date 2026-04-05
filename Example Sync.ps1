@@ -9,14 +9,21 @@ $CdpPage = Start-CdpServer -StartPage $UriBuilder.Uri.AbsoluteUri -UserDataDir $
 $CdpServer = $CdpPage.CdpServer
 
 $null = $CdpPage | Invoke-CdpPageNavigate -Url 'https://www.selenium.dev/selenium/web/single_text_input.html' |
-Invoke-CdpInputClickElement -Selector 'document.querySelector("[id=textInput]").value="H"' |
-Invoke-CdpInputSendKeys -Keys 'ello World'
+Wait-CdpLifecycleEvent -Events NetworkIdle, FirstPaint -Timeout 5000 |
+Invoke-CdpInputSendKeys -Keys 'Hello World'
 Start-Sleep 1
 $null = $CdpPage | Invoke-CdpInputClickElement -Selector 'document.querySelector("#textInput")' -Click 3 -TopLeft |
 Invoke-CdpInputSendKeys -Keys 'PSChromeDevToolsServer'
 
 $CdpPage2 = $CdpPage | New-CdpPage -Url 'https://www.selenium.dev/selenium/web/click_frames.html'
+$CdpContext = Get-CdpFrame -CdpPage $CdpPage2 -Url 'clicks.html'
+Wait-CdpLifecycleEvent -InputObject $CdpContext -Events NetworkIdle, FirstPaint -Timeout 5000
 $null = Invoke-CdpRuntimeEvaluate -CdpPage $CdpPage2 -Expression 'document.querySelector("frameset frame").contentDocument.querySelector("[id=source]").contentDocument.querySelector("[id=otherframe]").click()'
+
+$null = $CdpPage | Invoke-CdpPageNavigate -Url 'https://www.selenium.dev/selenium/web/click_frames.html' |
+Get-CdpFrame -Url 'clicks.html' |
+Wait-CdpLifecycleEvent -Events NetworkIdle -Timeout 5000 |
+Invoke-CdpInputClickElement -Selector 'document.querySelector("frameset frame").contentDocument.querySelector("[id=source]").contentDocument.querySelector("[id=otherframe]")' -Click 1 -BringToFront
 
 $CdpServer.ShowMessageHistory() | Format-Table -AutoSize
 
