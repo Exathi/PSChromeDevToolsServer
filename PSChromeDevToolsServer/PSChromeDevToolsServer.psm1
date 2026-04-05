@@ -117,7 +117,6 @@ class CdpFrame {
 		$this.LoadingState['FrameStoppedLoading'] = $false
 		$this.LoadingState['NetworkIdle'] = $false
 		$this.LoadingState['FirstPaint'] = $false
-		$this.LoadingState['FrameNavigated'] = $true
 	}
 }
 
@@ -196,16 +195,12 @@ class CdpEventHandler {
 
 	hidden [void]FrameDetached($Response) {
 		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
-		# 'remove' 'swap'
-		# if ($CdpPage -and $Response.params.reason -eq 'remove') {
 		$CdpFrame = $null
 		if ($CdpPage.Frames.TryRemove($Response.params.frameId, [ref]$CdpFrame)) {
 			$CdpFrame.LoadingState['FrameStoppedLoading'] = $true
 			$CdpFrame.LoadingState['NetworkIdle'] = $true
 			$CdpFrame.LoadingState['FirstPaint'] = $true
-			$CdpFrame.LoadingState['FrameNavigated'] = $true
 		}
-		# }
 	}
 
 	hidden [void]FrameNavigated($Response) {
@@ -227,9 +222,6 @@ class CdpEventHandler {
 		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
 		if ($CdpPage.TargetId -eq $Response.params.frameId) {
 			$CdpPage.LoadingState['FrameNavigated'] = $false
-		} else {
-			$Frame = $CdpPage.Frames.GetOrAdd($Response.params.frameId, [CdpFrame]::new($Response.params.frameId, $Response.sessionId))
-			$Frame.LoadingState['FrameNavigated'] = $false
 		}
 	}
 
@@ -237,11 +229,12 @@ class CdpEventHandler {
 		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
 		if ($CdpPage.TargetId -eq $Response.params.frameId) {
 			$CdpPage.LoadingState['FrameStoppedLoading'] = $true
-			$CdpPage.LoadingState['FrameNavigated'] = $true
 		} else {
-			$Frame = $CdpPage.Frames.GetOrAdd($Response.params.frameId, [CdpFrame]::new($Response.params.frameId, $Response.sessionId))
-			$Frame.LoadingState['FrameStoppedLoading'] = $true
-			$Frame.LoadingState['FrameNavigated'] = $true
+			$Frame = $null
+			$null = $CdpPage.Frames.TryGetValue($Response.params.frameId, [ref]$Frame)
+			if ($Frame) {
+				$Frame.LoadingState['FrameStoppedLoading'] = $true
+			}
 		}
 	}
 
