@@ -91,7 +91,7 @@ class CdpPage {
 	[void]ResetLoadingState() {
 		$this.LoadingState['NetworkIdle'] = $false
 		$this.LoadingState['FrameStoppedLoading'] = $false
-		$this.LoadingState['LoadEventFired'] = $false
+		$this.LoadingState['Load'] = $false
 		$this.LoadingState['FirstPaint'] = $false
 		$this.LoadingState['FrameNavigated'] = $true
 	}
@@ -114,8 +114,9 @@ class CdpFrame {
 	[System.Collections.Concurrent.ConcurrentDictionary[string, bool]]$LoadingState = [System.Collections.Concurrent.ConcurrentDictionary[string, bool]]::new()
 
 	[void]ResetLoadingState() {
-		$this.LoadingState['FrameStoppedLoading'] = $false
 		$this.LoadingState['NetworkIdle'] = $false
+		$this.LoadingState['FrameStoppedLoading'] = $false
+		$this.LoadingState['Load'] = $false
 		$this.LoadingState['FirstPaint'] = $false
 	}
 }
@@ -137,7 +138,6 @@ class CdpEventHandler {
 			'Page.frameDetached' = $this.FrameDetached
 			'Page.FrameNavigated' = $this.FrameNavigated
 			'Page.lifecycleEvent' = $this.LifecycleEvent
-			'Page.loadEventFired' = $this.LoadEventFired
 			'Page.frameStartedNavigating' = $this.FrameStartedNavigating
 			'Page.frameStoppedLoading' = $this.FrameStoppedLoading
 			'Target.targetCreated' = $this.TargetCreated
@@ -196,10 +196,14 @@ class CdpEventHandler {
 			$CdpPage.Frames.GetOrAdd($Response.params.frameId, [CdpFrame]::new($Response.params.frameId, $Response.sessionId))
 		}
 		$LifeCycleName = $Response.params.name
-		if ($LifeCycleName -eq 'networkIdle' -or $LifeCycleName -eq 'firstPaint') {
+		if ($LifeCycleName -eq 'networkIdle' -or $LifeCycleName -eq 'load' -or $LifeCycleName -eq 'firstPaint') {
 			switch ($LifeCycleName) {
 				'networkIdle' {
 					$Target.LoadingState['NetworkIdle'] = $true
+					break
+				}
+				'load' {
+					$Target.LoadingState['Load'] = $true
 					break
 				}
 				'firstPaint' {
@@ -208,11 +212,6 @@ class CdpEventHandler {
 				}
 			}
 		}
-	}
-
-	hidden [void]LoadEventFired($Response) {
-		$CdpPage = $this.GetPageBySessionId($Response.sessionId)
-		$CdpPage.LoadingState['LoadEventFired'] = $true
 	}
 
 	hidden [void]FrameStartedNavigating($Response) {
@@ -611,10 +610,9 @@ class CdpServer {
 			)
 		}
 
-		# Wait for NetworkIdle on main page
 		[System.Threading.SpinWait]::SpinUntil({
-				$CdpPage.LoadingState['NetworkIdle']
-			}, 500
+				$CdpPage.LoadingState['Load']
+			}
 		)
 
 		# Wait for main page to load
@@ -1082,7 +1080,7 @@ function New-CdpPage {
 function Invoke-CdpPageNavigate {
 	<#
 		.SYNOPSIS
-		Navigates and automatically waits for the page to load with LoadEventFired and FrameStoppedLoading
+		Navigates and automatically waits for the page to load with Page.lifecycleEvent.load and FrameStoppedLoading
 		Also waits for frames to load if they are present
 	#>
 	[CmdletBinding()]
