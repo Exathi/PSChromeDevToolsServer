@@ -1128,6 +1128,7 @@ function Invoke-CdpInputClickElement {
 		}
 
 		$CdpPage.PageInfo['Node'] = $Response.result.node
+		if ($Response.result.node.nodeType -ne 1) { throw ('Node is not an element. {0}' -f $Response.result.node) }
 
 		$Command = Get-DOM.getBoxModel $SessionId $CdpPage.PageInfo['ObjectId']
 		$Command.params.objectId = $CdpPage.PageInfo['ObjectId']
