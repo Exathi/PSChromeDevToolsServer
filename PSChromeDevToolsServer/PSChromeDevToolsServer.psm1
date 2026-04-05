@@ -867,12 +867,12 @@ function Get-Target.setDiscoverTargets {
 	}
 }
 
-function Get-CdpFrames {
+function Get-CdpFrameTree {
 	param($Tree)
 	if ($Tree.frame) { $Tree.frame }
 	if ($Tree.childFrames) {
 		foreach ($Child in $Tree.childFrames) {
-			Get-CdpFrames $Child
+			Get-CdpFrameTree $Child
 		}
 	}
 }
@@ -1376,7 +1376,7 @@ function Get-CdpFrame {
 		do {
 			$Command = Get-Page.getFrameTree $CdpPage.TargetInfo.SessionId
 			$Response = $CdpPage.CdpServer.SendCommand($Command, 1)
-			$FramesTree = Get-CdpFrames $Response.result.frameTree
+			$FramesTree = Get-CdpFrameTree $Response.result.frameTree
 			$Match = $FramesTree.url | Select-String -Pattern $Url
 			$MatchedFrame = $FramesTree | Where-Object { $_.url -eq $Match.Line }
 			$CdpFrame = $CdpPage.Frames.Values | Where-Object { $_.FrameId -eq $MatchedFrame.id }
