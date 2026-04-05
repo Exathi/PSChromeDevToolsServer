@@ -551,22 +551,7 @@ class CdpServer {
 
 		$CdpPage = $this.GetFirstAvailableCdpPage()
 
-		$SessionId = $null
-		[System.Threading.SpinWait]::SpinUntil({ $null = $CdpPage.TargetInfo.TryGetValue('SessionId', [ref]$SessionId); $null -ne $SessionId })
-
-		$Command = Get-Runtime.enable $SessionId
-		$null = $this.SendCommand($Command, [WaitForResponse]::Message)
-
-		$RuntimeUniqueId = $null
-		[System.Threading.SpinWait]::SpinUntil({ $null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$RuntimeUniqueId); $null -ne $RuntimeUniqueId })
-
-		$Command = Get-Page.enable $SessionId
-		$null = $this.SendCommand($Command, [WaitForResponse]::Message)
-
-		$Command = Get-Page.setLifecycleEventsEnabled $SessionId $true
-		$null = $this.SendCommand($Command, [WaitForResponse]::Message)
-
-		$this.WaitForPageLoad($CdpPage, $true)
+		$this.SetupNewPage($CdpPage)
 	}
 
 	[object]ShowMessageHistory() {
@@ -602,10 +587,11 @@ class CdpServer {
 		return $this.GetPageByTargetId($AvailableTarget.Value.TargetId)
 	}
 
-	[void]WaitForPageLoad([CdpPage]$CdpPage, [bool]$SkipForNewPage) {
-		if (!$CdpPage.LoadingState['FrameNavigated']) {
+	[void]WaitForPageLoad([CdpPage]$CdpPage) {
+		if ($CdpPage.LoadingState['FrameNavigated']) {
 			[System.Threading.SpinWait]::SpinUntil({
-					$CdpPage.LoadingState['FrameNavigated']
+					$CdpPage.LoadingState['FrameNavigated'] -or
+					$CdpPage.LoadingState['Page.frameStoppedLoading']
 				}
 			)
 		}
@@ -615,59 +601,38 @@ class CdpServer {
 			}
 		)
 
-		# Wait for main page to load
-		if (!$SkipForNewPage) {
-			[System.Threading.SpinWait]::SpinUntil({
-					$CdpPage.LoadingState['LoadEventFired'] -and
-					$CdpPage.LoadingState['FrameStoppedLoading']
-				}
-			)
-			# FirstPaint may not fire on all pages, use timeout (ms)
-			# All pages that have content will paint.
-			# Pages with an empty or no body will not paint.
-			# All frames that have no size will not paint.
-			[System.Threading.SpinWait]::SpinUntil({
-					$CdpPage.LoadingState['FirstPaint']
-				}, 500
-			)
-		}
-
-		# Wait for all child frames to load
+		# Wait for all child frames to have executioncontext
 		if ($CdpPage.Frames.Count -gt 0) {
 			[System.Threading.SpinWait]::SpinUntil({
 					$RuntimeUniqueIdSnapshot = $CdpPage.Frames.Values.PageInfo.RuntimeUniqueId
 					$null -notin $RuntimeUniqueIdSnapshot
 				}
 			)
+		}
+	}
 
-			foreach ($FrameId in $CdpPage.Frames.Keys) {
-				$Frame = $CdpPage.Frames[$FrameId]
-				if ($null -eq $Frame) { continue }
+	[void]SetupNewPage([CdpPage]$CdpPage) {
+		$SessionId = $null
+		[System.Threading.SpinWait]::SpinUntil({ $null = $CdpPage.TargetInfo.TryGetValue('SessionId', [ref]$SessionId); $null -ne $SessionId })
 
-				# Not all frames fire FrameStoppedLoading?
-				# if (!$SkipForNewPage) {
-				# 	[System.Threading.SpinWait]::SpinUntil({
-				# 			$Frame.LoadingState['FrameStoppedLoading']
-				# 		}, 100
-				# 	)
-				# }
-				if (!$Frame.LoadingState['FrameNavigated']) {
-					[System.Threading.SpinWait]::SpinUntil({
-							$Frame.LoadingState['FrameNavigated']
-						}
-					)
+		$Command = Get-Runtime.enable $SessionId
+		$null = $this.SendCommand($Command, [WaitForResponse]::Message)
+
+		$RuntimeUniqueId = $null
+		[System.Threading.SpinWait]::SpinUntil({ $null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$RuntimeUniqueId); $null -ne $RuntimeUniqueId })
+
+		$Command = Get-Page.enable $SessionId
+		$null = $this.SendCommand($Command, [WaitForResponse]::Message)
+
+		$Command = Get-Page.setLifecycleEventsEnabled $SessionId $true
+		$null = $this.SendCommand($Command, [WaitForResponse]::Message)
+
+		if ($CdpPage.Frames.Count -gt 0) {
+			[System.Threading.SpinWait]::SpinUntil({
+					$RuntimeUniqueIdSnapshot = $CdpPage.Frames.Values.PageInfo.RuntimeUniqueId
+					$null -notin $RuntimeUniqueIdSnapshot
 				}
-
-				[System.Threading.SpinWait]::SpinUntil({
-						$Frame.LoadingState['NetworkIdle']
-					}, 500
-				)
-				# FirstPaint may not fire on all frames, use timeout (ms)
-				[System.Threading.SpinWait]::SpinUntil({
-						$Frame.LoadingState['FirstPaint']
-					}, 500
-				)
-			}
+			)
 		}
 	}
 
@@ -1056,22 +1021,7 @@ function New-CdpPage {
 		$Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
 		$CdpPage = $CdpServer.GetPageByTargetId($Response.result.targetId)
 
-		$SessionId = $null
-		[System.Threading.SpinWait]::SpinUntil({ $null = $CdpPage.TargetInfo.TryGetValue('SessionId', [ref]$SessionId); $null -ne $SessionId })
-
-		$Command = Get-Runtime.enable $SessionId
-		$null = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
-
-		$RuntimeUniqueId = $null
-		[System.Threading.SpinWait]::SpinUntil({ $null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$RuntimeUniqueId); $null -ne $RuntimeUniqueId })
-
-		$Command = Get-Page.enable $SessionId
-		$null = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
-
-		$Command = Get-Page.setLifecycleEventsEnabled $SessionId $true
-		$null = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
-
-		$CdpServer.WaitForPageLoad($CdpPage, $true)
+		$CdpServer.SetupNewPage($CdpPage)
 
 		$CdpPage
 	}
@@ -1111,7 +1061,7 @@ function Invoke-CdpPageNavigate {
 			)
 		}
 
-		$CdpServer.WaitForPageLoad($CdpPage, $false)
+		$CdpServer.WaitForPageLoad($CdpPage)
 
 		$_
 	}
