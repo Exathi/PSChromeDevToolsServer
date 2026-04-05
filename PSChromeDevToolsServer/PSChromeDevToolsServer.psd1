@@ -67,12 +67,14 @@ Uses anonymous pipes to connect to remote-debugging-pipes to control the browser
     FunctionsToExport = @(
         'Start-CdpServer',
         'Stop-CdpServer',
+        'Get-CdpFrame',
         'New-CdpPage',
         'Invoke-CdpPageNavigate',
         'Invoke-CdpInputClickElement',
         'Invoke-CdpInputSendKeys',
         'Invoke-CdpRuntimeEvaluate',
         'Invoke-CdpRuntimeAddBinding',
+        'Wait-CdpLifecycleEvent'
         'ConvertTo-Delegate'
     )
 

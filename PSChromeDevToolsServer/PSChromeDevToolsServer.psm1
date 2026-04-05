@@ -1314,3 +1314,63 @@ function Invoke-CdpRuntimeAddBinding {
 		$_
 	}
 }
+
+function Wait-CdpLifecycleEvent {
+	[CmdletBinding()]
+	param(
+		[Parameter(Mandatory, ValueFromPipeline)]
+		[object]$InputObject,
+		[ValidateSet('NetworkIdle', 'FirstPaint')]
+		[string[]]$Events = @('NetworkIdle'),
+		[int]$Timeout = 1000
+	)
+
+	process {
+		if ($InputObject.CdpPage) {
+			$CdpPage = $InputObject.CdpPage
+			$Target = $InputObject.CdpFrame
+		} else {
+			$CdpPage = $InputObject
+			$Target = $InputObject
+		}
+
+		$null = [System.Threading.SpinWait]::SpinUntil({
+				$States = $Events | ForEach-Object { $Target.LoadingState[$_] }
+				$States -notcontains $false
+			}, $Timeout)
+
+		if ($_) { $CdpPage }
+	}
+}
+
+function Get-CdpFrame {
+	[CmdletBinding()]
+	param(
+		[Parameter(Mandatory, ValueFromPipeline)]
+		[CdpPage]$CdpPage,
+		[Parameter(Mandatory)]
+		[string]$Url,
+		[int]$Timeout = 5000
+	)
+
+	process {
+		$Start = Get-Date
+		do {
+			$Command = Get-Page.getFrameTree $CdpPage.TargetInfo.SessionId
+			$Response = $CdpPage.CdpServer.SendCommand($Command, 1)
+			$FramesTree = Get-CdpFrames $Response.result.frameTree
+			$Match = $FramesTree.url | Select-String -Pattern $Url
+			$MatchedFrame = $FramesTree | Where-Object { $_.url -eq $Match.Line }
+			$CdpFrame = $CdpPage.Frames.Values | Where-Object { $_.FrameId -eq $MatchedFrame.id }
+			if ($CdpFrame) { break }
+			Start-Sleep 0
+		} while (($Start.AddMilliseconds($Timeout) - (Get-Date)).Milliseconds -gt 0)
+
+		if (!$CdpFrame) { throw ('No frame found using: {0}' -f $Url) }
+
+		[pscustomobject]@{
+			CdpPage = $CdpPage
+			CdpFrame = $CdpFrame
+		}
+	}
+}
