@@ -297,16 +297,9 @@ class CdpServer {
     }
 
     [void]WaitForPageLoad([CdpPage]$CdpPage) {
-        if ($CdpPage.LoadingState['FrameNavigated']) {
-            [System.Threading.SpinWait]::SpinUntil({
-                    $CdpPage.LoadingState['FrameNavigated'] -or
-                    $CdpPage.LoadingState['Page.frameStoppedLoading']
-                }
-            )
-        }
-
         [System.Threading.SpinWait]::SpinUntil({
-                $CdpPage.LoadingState['Load']
+                $CdpPage.LoadingState['Load'] -and
+                $CdpPage.LoadingState['FrameStoppedLoading']
             }
         )
 

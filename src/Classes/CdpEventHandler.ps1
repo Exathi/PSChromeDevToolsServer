@@ -14,9 +14,7 @@ class CdpEventHandler {
         $this.EventHandlers = @{
             'Page.frameAttached' = $this.FrameAttached
             'Page.frameDetached' = $this.FrameDetached
-            'Page.FrameNavigated' = $this.FrameNavigated
             'Page.lifecycleEvent' = $this.LifecycleEvent
-            'Page.frameStartedNavigating' = $this.FrameStartedNavigating
             'Page.frameStoppedLoading' = $this.FrameStoppedLoading
             'Target.targetCreated' = $this.TargetCreated
             'Target.targetDestroyed' = $this.TargetDestroyed
@@ -59,13 +57,6 @@ class CdpEventHandler {
         }
     }
 
-    hidden [void]FrameNavigated($Response) {
-        $CdpPage = $this.GetPageBySessionId($Response.sessionId)
-        if ($CdpPage.TargetId -eq $Response.params.frame.id) {
-            $CdpPage.LoadingState['FrameNavigated'] = $true
-        }
-    }
-
     hidden [void]LifecycleEvent($Response) {
         $CdpPage = $this.GetPageBySessionId($Response.sessionId)
         $Target = if ($CdpPage.TargetId -eq $Response.params.frameId) {
@@ -89,13 +80,6 @@ class CdpEventHandler {
                     break
                 }
             }
-        }
-    }
-
-    hidden [void]FrameStartedNavigating($Response) {
-        $CdpPage = $this.GetPageBySessionId($Response.sessionId)
-        if ($CdpPage.TargetId -eq $Response.params.frameId) {
-            $CdpPage.LoadingState['FrameNavigated'] = $false
         }
     }
 
