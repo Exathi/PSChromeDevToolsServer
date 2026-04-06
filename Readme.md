@@ -34,7 +34,7 @@ Invoke-CdpRuntimeAddBinding - Add binding object to enable browser communication
 
 Wait-CdpPageLifecycleEvent - `[CdpPage]` or output from `Get-CdpFrame` to wait for a LifecycleEvent.
 
-ConvertTo-Delegate - Used to convert PSMethods to delegates for Windows Powershell. See `Example Async.ps1`.
+ConvertTo-Delegate - Used to convert PSMethods to delegates for Windows Powershell. See `Examples\Async.ps1`.
 
 ## Classes
 
@@ -102,4 +102,4 @@ Page events and Javascript are on by default for the first tab.
 
 ## Todo/Considerations
 
-Break up the file into smaller pieces.
+Selectors
