@@ -1,8 +1,8 @@
 # [NoRunspaceAffinity()]
 class CdpEventHandler {
     [System.Collections.Concurrent.ConcurrentDictionary[string, object]]$SharedState
-    [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEvent]]]$NewTargets = [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEvent]]]::new()
-    [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEvent]]]$NewSessions = [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEvent]]]::new()
+    [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]$NewTargets = [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]::new()
+    [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]$NewSessions = [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]::new()
     [hashtable]$EventHandlers
 
     CdpEventHandler([System.Collections.Concurrent.ConcurrentDictionary[string, object]]$SharedState) {
@@ -115,7 +115,9 @@ class CdpEventHandler {
     hidden [void]TargetCreated($Response) {
         $Target = $Response.params.targetInfo
         $CdpPage = [CdpPage]::new($Target.targetId, $Target.Url, $Target.Title, $Target.browserContextId, $this.SharedState.CdpServer)
-        $null = $this.SharedState.Targets.TryAdd($Target.targetId, $CdpPage)
+        $CdpPageReady = $this.NewTargets.GetOrAdd($Target.targetId, [System.Threading.ManualResetEventSlim]::new($false))
+        $this.SharedState.Targets[$Target.targetId] = $CdpPage
+        $CdpPageReady.Set()
     }
 
     hidden [void]TargetDestroyed($Response) {
@@ -136,10 +138,12 @@ class CdpEventHandler {
     }
 
     hidden [void]AttachedToTarget($Response) {
-        $Target = $Response.params.targetInfo
-        $CdpPage = $this.GetPageByTargetId($Target.targetId)
-        $CdpPage.TargetInfo.AddOrUpdate('SessionId', $Response.params.sessionId, { param($Key, $OldValue) $Response.params.sessionId })
-        $null = $this.SharedState.Sessions.TryAdd($Response.params.sessionId, $CdpPage)
+        $SessionId = $Response.params.sessionId
+        $CdpPageReady = $this.NewSessions.GetOrAdd($SessionId, [System.Threading.ManualResetEventSlim]::new($false))
+        $CdpPage = $this.GetPageByTargetId($Response.params.targetInfo.targetId)
+        $CdpPage.TargetInfo['SessionId'] = $SessionId
+        $this.SharedState.Sessions[$SessionId] = $CdpPage
+        $CdpPageReady.Set()
     }
 
     hidden [void]DetachedFromTarget($Response) {
@@ -166,13 +170,19 @@ class CdpEventHandler {
 
     [CdpPage]GetPageBySessionId([string]$SessionId) {
         $CdpPage = $null
-        [System.Threading.SpinWait]::SpinUntil({ $this.SharedState.Sessions.TryGetValue($SessionId, [ref]$CdpPage) })
-        return $CdpPage
+        if (!$this.SharedState.Sessions.TryGetValue($SessionId, [ref]$CdpPage)) {
+            $CdpPageReady = $this.NewSessions.GetOrAdd($SessionId, [System.Threading.ManualResetEventSlim]::new($false))
+            $CdpPageReady.Wait()
+        }
+        return $this.SharedState.Sessions[$SessionId]
     }
 
     [CdpPage]GetPageByTargetId([string]$TargetId) {
         $CdpPage = $null
-        [System.Threading.SpinWait]::SpinUntil({ $this.SharedState.Targets.TryGetValue($TargetId, [ref]$CdpPage) })
-        return $CdpPage
+        if (!$this.SharedState.Targets.TryGetValue($TargetId, [ref]$CdpPage)) {
+            $CdpPageReady = $this.NewTargets.GetOrAdd($TargetId, [System.Threading.ManualResetEventSlim]::new($false))
+            $CdpPageReady.Wait()
+        }
+        return $this.SharedState.Targets[$TargetId]
     }
 }

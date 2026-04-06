@@ -222,14 +222,20 @@ class CdpServer {
 
     [CdpPage]GetPageBySessionId([string]$SessionId) {
         $CdpPage = $null
-        [System.Threading.SpinWait]::SpinUntil({ $this.SharedState.Sessions.TryGetValue($SessionId, [ref]$CdpPage) })
-        return $CdpPage
+        if (!$this.SharedState.Sessions.TryGetValue($SessionId, [ref]$CdpPage)) {
+            $CdpPageReady = $this.SharedState.EventHandler.NewSessions.GetOrAdd($SessionId, [System.Threading.ManualResetEventSlim]::new($false))
+            $CdpPageReady.Wait()
+        }
+        return $this.SharedState.Sessions[$SessionId]
     }
 
     [CdpPage]GetPageByTargetId([string]$TargetId) {
         $CdpPage = $null
-        [System.Threading.SpinWait]::SpinUntil({ $this.SharedState.Targets.TryGetValue($TargetId, [ref]$CdpPage) })
-        return $CdpPage
+        if (!$this.SharedState.Targets.TryGetValue($TargetId, [ref]$CdpPage)) {
+            $CdpPageReady = $this.SharedState.EventHandler.NewTargets.GetOrAdd($TargetId, [System.Threading.ManualResetEventSlim]::new($false))
+            $CdpPageReady.Wait()
+        }
+        return $this.SharedState.Targets[$TargetId]
     }
 
     [void]SendRuntimeEvaluate([string]$SessionId, [string]$Expression) {
@@ -249,8 +255,6 @@ class CdpServer {
 
         $Command = Get-Target.setAutoAttach
         $this.SendCommand($Command)
-
-        [System.Threading.SpinWait]::SpinUntil({ $this.SharedState.Targets.Count -ne 0 })
 
         $CdpPage = $this.GetFirstAvailableCdpPage()
 
