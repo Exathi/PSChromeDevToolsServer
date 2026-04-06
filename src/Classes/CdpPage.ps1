@@ -8,6 +8,9 @@ class CdpPage {
     [int]$ProcessId
     [object]$CdpServer
 
+    hidden [System.Threading.ManualResetEventSlim]$SessionReady = [System.Threading.ManualResetEventSlim]::new($false)
+    hidden [System.Threading.ManualResetEventSlim]$RuntimeReady = [System.Threading.ManualResetEventSlim]::new($false)
+
     CdpPage($TargetId, $Url, $Title, $BrowserContextId, $CdpServer) {
         $this.TargetId = $TargetId
         $this.Url = $Url
@@ -35,6 +38,5 @@ class CdpPage {
         $this.LoadingState['FrameStoppedLoading'] = $false
         $this.LoadingState['Load'] = $false
         $this.LoadingState['FirstPaint'] = $false
-        $this.LoadingState['FrameNavigated'] = $true
     }
 }

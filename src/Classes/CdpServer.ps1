@@ -305,23 +305,18 @@ class CdpServer {
 
         # Wait for all child frames to have executioncontext
         if ($CdpPage.Frames.Count -gt 0) {
-            [System.Threading.SpinWait]::SpinUntil({
-                    $RuntimeUniqueIdSnapshot = $CdpPage.Frames.Values.PageInfo.RuntimeUniqueId
-                    $null -notin $RuntimeUniqueIdSnapshot
-                }
-            )
+            $CdpPage.Frames.Values.RuntimeReady.Wait()
         }
     }
 
     [void]SetupNewPage([CdpPage]$CdpPage) {
-        $SessionId = $null
-        [System.Threading.SpinWait]::SpinUntil({ $null = $CdpPage.TargetInfo.TryGetValue('SessionId', [ref]$SessionId); $null -ne $SessionId })
+        $CdpPage.SessionReady.Wait()
+        $SessionId = $CdpPage.TargetInfo['SessionId']
 
         $Command = Get-Runtime.enable $SessionId
         $null = $this.SendCommand($Command, [WaitForResponse]::Message)
 
-        $RuntimeUniqueId = $null
-        [System.Threading.SpinWait]::SpinUntil({ $null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$RuntimeUniqueId); $null -ne $RuntimeUniqueId })
+        $CdpPage.RuntimeReady.Wait()
 
         $Command = Get-Page.enable $SessionId
         $null = $this.SendCommand($Command, [WaitForResponse]::Message)
@@ -330,11 +325,7 @@ class CdpServer {
         $null = $this.SendCommand($Command, [WaitForResponse]::Message)
 
         if ($CdpPage.Frames.Count -gt 0) {
-            [System.Threading.SpinWait]::SpinUntil({
-                    $RuntimeUniqueIdSnapshot = $CdpPage.Frames.Values.PageInfo.RuntimeUniqueId
-                    $null -notin $RuntimeUniqueIdSnapshot
-                }
-            )
+            $CdpPage.Frames.Values.RuntimeReady.Wait()
         }
     }
 

@@ -3,6 +3,8 @@ class CdpFrame {
     [string]$ParentFrameId
     [string]$SessionId
 
+    hidden [System.Threading.ManualResetEventSlim]$RuntimeReady = [System.Threading.ManualResetEventSlim]::new($false)
+
     CdpFrame ($FrameId, $SessionId) {
         $this.ResetLoadingState()
         $this.FrameId = $FrameId

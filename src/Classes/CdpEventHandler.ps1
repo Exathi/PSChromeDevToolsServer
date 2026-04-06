@@ -108,6 +108,11 @@ class CdpEventHandler {
         $CdpPage = $this.GetPageByTargetId($Response.params.targetId)
         if ($CdpPage) {
             $null = $this.SharedState.Targets.TryRemove($CdpPage.TargetId, [ref]$null)
+            $CdpPage.SessionReady.Dispose()
+            $CdpPage.RuntimeReady.Dispose()
+            if ($CdpPage.Frames.Count -gt 0) {
+                $CdpPage.Frames.Values.RuntimeReady.Dispose()
+            }
         }
     }
 
@@ -127,6 +132,7 @@ class CdpEventHandler {
         $CdpPage = $this.GetPageByTargetId($Response.params.targetInfo.targetId)
         $CdpPage.TargetInfo['SessionId'] = $SessionId
         $this.SharedState.Sessions[$SessionId] = $CdpPage
+        $CdpPage.SessionReady.Set()
         $CdpPageReady.Set()
     }
 
@@ -138,7 +144,9 @@ class CdpEventHandler {
 
     hidden [void]ExecutionContextsCleared($Response) {
         $CdpPage = $this.GetPageBySessionId($Response.sessionId)
+        if ($CdpPage.Frames.Count -gt 0) { $CdpPage.Frames.Values.RuntimeReady.Dispose() }
         $CdpPage.Frames.Clear()
+        if ($CdpPage.RuntimeReady.IsSet) { $CdpPage.RuntimeReady.Reset() }
     }
 
     hidden [void]ExecutionContextCreated($Response) {
@@ -146,9 +154,11 @@ class CdpEventHandler {
         $FrameId = $Response.params.context.auxData.frameId
         if ($CdpPage.TargetId -eq $FrameId) {
             $CdpPage.PageInfo.AddOrUpdate('RuntimeUniqueId', $Response.params.context.uniqueId, { param($Key, $OldValue) $Response.params.context.uniqueId } )
+            $CdpPage.RuntimeReady.Set()
         } else {
             $Frame = $CdpPage.Frames.GetOrAdd($FrameId, [CdpFrame]::new($FrameId, $Response.sessionId))
             $Frame.PageInfo['RuntimeUniqueId'] = $Response.params.context.uniqueId
+            $Frame.RuntimeReady.Set()
         }
     }
 
