@@ -279,19 +279,21 @@ class CdpServer {
     }
 
     [CdpPage]GetFirstAvailableCdpPage() {
-        $AvailableTarget = $null
+        $AvailableTargetId = $null
         do {
             $TargetCreatedEvents = $this.SharedState.MessageHistory.GetEnumerator() | Sort-Object -Property Key | Where-Object {
                 $_.Value.method -eq 'Target.targetCreated'
             }
 
-            $AvailableTarget = foreach ($TargetId in $TargetCreatedEvents.Value.params.targetInfo.targetId) {
+            $AvailableTargetId = foreach ($TargetId in $TargetCreatedEvents.Value.params.targetInfo.targetId) {
                 $Target = $this.SharedState.Targets.GetEnumerator() | Where-Object { $_.Value.TargetId -eq $TargetId }
-                $Target
-                if ($Target) { break }
+                if ($Target) {
+                    $TargetId
+                    break
+                }
             }
-        } while (!$AvailableTarget)
-        return $this.GetPageByTargetId($AvailableTarget.Value.TargetId)
+        } while (!$AvailableTargetId)
+        return $this.SharedState.Targets[$AvailableTargetId]
     }
 
     [void]WaitForPageLoad([CdpPage]$CdpPage) {
