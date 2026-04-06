@@ -1,6 +1,8 @@
 # [NoRunspaceAffinity()]
 class CdpEventHandler {
-    [System.Collections.Generic.Dictionary[string, object]]$SharedState
+    [System.Collections.Concurrent.ConcurrentDictionary[string, object]]$SharedState
+    [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEvent]]]$NewTargets = [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEvent]]]::new()
+    [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEvent]]]$NewSessions = [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEvent]]]::new()
     [hashtable]$EventHandlers
 
     CdpEventHandler([System.Collections.Concurrent.ConcurrentDictionary[string, object]]$SharedState) {
