@@ -6,19 +6,17 @@ enum WaitForResponse {
 
 $script:Powershell = $null
 
-function Initialize {
-	$script:Powershell = [powershell]::Create()
-	$script:Powershell.AddScript( {
-			function New-UnboundClassInstance ([Type] $type, [object[]] $arguments) {
-				[activator]::CreateInstance($type, $arguments)
-			}
-		}.Ast.GetScriptBlock()
-	).Invoke()
-	$script:Powershell.Commands.Clear()
-}
-
 function New-UnboundClassInstance ([Type] $type, [object[]] $arguments = $null) {
-	if ($null -eq $script:Powershell) { Initialize }
+	if ($null -eq $script:Powershell) {
+		$script:Powershell = [powershell]::Create()
+		$script:Powershell.AddScript({
+				function New-UnboundClassInstance ([Type] $type, [object[]] $arguments) {
+					[activator]::CreateInstance($type, $arguments)
+				}
+			}.Ast.GetScriptBlock()
+		).Invoke()
+		$script:Powershell.Commands.Clear()
+	}
 
 	try {
 		if ($null -eq $arguments) { $arguments = @() }
