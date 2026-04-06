@@ -1103,8 +1103,8 @@ function Invoke-CdpInputClickElement {
 		[Parameter(ParameterSetName = 'Click')]
 		[switch]$TopLeft,
 		[switch]$BringToFront,
-		[ValidateLength(1, [int]::MaxValue)]
-		[int]$Delay = 1
+		[ValidateRange(0, [int]::MaxValue)]
+		[int]$Delay = 0
 	)
 
 	process {
@@ -1188,8 +1188,8 @@ function Invoke-CdpInputSendKeys {
 		[Parameter(Mandatory)]
 		[string]$Keys,
 		[switch]$BringToFront,
-		[ValidateLength(1, [int]::MaxValue)]
-		[int]$Delay = 1
+		[ValidateRange(0, [int]::MaxValue)]
+		[int]$Delay = 0
 	)
 
 	process {
