@@ -1,5 +1,5 @@
 # PSChromeDevToolsServer - Powershell Browser Automation
-[![Static Badge](https://img.shields.io/badge/Powershell%20Gallery-0.4.0-blue)](https://www.powershellgallery.com/packages/PSChromeDevToolsServer/)
+[![Static Badge](https://img.shields.io/badge/Powershell%20Gallery-0.4.1-blue)](https://www.powershellgallery.com/packages/PSChromeDevToolsServer/)
 
 
 Automate any Chromium browser with Powershell with `--remote-debugging-pipe` and `--remote-debugging-io-pipe`. I still couldn't find any examples in 2026 that made use of these switches with dotnet without tapping into WinApi functions.
@@ -18,7 +18,7 @@ Start-CdpServer - Launch browser and returns the first `[CdpPage]`.
 
 Stop-CdpServer - Close browser and dispose pipes, processes, runspace pool.
 
-Get-CdpFrame - Tries to find a frame matching the provided url to be used with `Wait-CdpLifecycleEvent`. Returns a pscustomobject with `[CdpPage]` and `[CdpFrame]`
+Get-CdpFrame - Tries to find a frame matching the provided url to be used with `Wait-CdpPageLifecycleEvent`. Returns a pscustomobject with `[CdpPage]` and `[CdpFrame]`
 
 New-CdpPage - Create new page/tab and returns `[CdpPage]`.
 
@@ -32,7 +32,7 @@ Invoke-CdpRuntimeEvaluate - Run javascript on browser and return raw result.
 
 Invoke-CdpRuntimeAddBinding - Add binding object to enable browser communication to the `[CdpEventHandler]`.
 
-Wait-CdpLifecycleEvent - `[CdpPage]` or output from `Get-CdpFrame` to wait for a LifeCycleEvent.
+Wait-CdpPageLifecycleEvent - `[CdpPage]` or output from `Get-CdpFrame` to wait for a LifecycleEvent.
 
 ConvertTo-Delegate - Used to convert PSMethods to delegates for Windows Powershell. See `Example Async.ps1`.
 

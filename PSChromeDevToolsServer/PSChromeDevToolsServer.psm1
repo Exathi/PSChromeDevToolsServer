@@ -1313,7 +1313,7 @@ function Invoke-CdpRuntimeAddBinding {
 	}
 }
 
-function Wait-CdpLifecycleEvent {
+function Wait-CdpPageLifecycleEvent {
 	<#
 		.SYNOPSIS
 		Waits for provided LifecycleEvents.
