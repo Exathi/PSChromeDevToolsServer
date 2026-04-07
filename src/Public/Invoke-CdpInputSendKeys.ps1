@@ -32,19 +32,18 @@ function Invoke-CdpInputSendKeys {
             $null = $CdpServer.SendCommand($CommandFront, [WaitForResponse]::Message)
         }
 
-        $CommandIdWaiter = $Keys.ToCharArray().ForEach({
-                $Command.params.text = $_
-                Start-Sleep -Milliseconds $Delay # if we send keys too fast it will fail to register.
-                $CdpServer.SendCommand($Command, [WaitForResponse]::CommandId)
-            }
-        )
+        $CommandIds = foreach ($Char in $Keys[0..($Keys.Length - 1)]) {
+            $Command.params.text = $Char
+            Start-Sleep -Milliseconds $Delay # if we send keys too fast it can fail to register.
+            $CdpServer.SendCommand($Command, [WaitForResponse]::CommandId)
+        }
 
-        $KeyCount = $Keys.ToCharArray().Count
-        [System.Threading.SpinWait]::SpinUntil({
-                $CommandResponse = $CommandIdWaiter.Where({ $CdpServer.SharedState.MessageHistory.ContainsKey([version]::new($_, 0)) })
-                $CommandResponse.Count -eq $KeyCount
-            }
-        )
+        foreach ($Id in $CommandIds) {
+            $History = $CdpServer.SharedState.CommandHistory[$Id]
+            $History.CommandReady.Wait()
+            $History.CommandReady.Dispose()
+            $History.CommandReady = $null
+        }
 
         $_
     }

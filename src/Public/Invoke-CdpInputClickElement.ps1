@@ -59,7 +59,7 @@ function Invoke-CdpInputClickElement {
         }
 
         $CdpPage.PageInfo['Node'] = $Response.result.node
-        if ($Response.result.node.nodeType -ne 1) { throw ('Node is not an element. {0}' -f $Response.result.node) }
+        if ($Response.result.node.nodeType -ne 1 -and $Response.result.node.nodeType -ne 3) { throw ('Node is not an element or text. {0}' -f $Response.result.node) }
 
         $Command = Get-DOM.getBoxModel $SessionId $CdpPage.PageInfo['ObjectId']
         $Command.params.objectId = $CdpPage.PageInfo['ObjectId']
@@ -82,18 +82,19 @@ function Invoke-CdpInputClickElement {
             $null = $CdpServer.SendCommand($CommandFront, [WaitForResponse]::Message)
         }
 
-        $CommandIdWaiter = @(
+        $CommandIds = @(
             $CdpServer.SendCommand($Command, [WaitForResponse]::CommandId)
             $Command.params.type = 'mouseReleased'
-            Start-Sleep -Milliseconds $Delay # if we send click too fast it will fail to register.
+            Start-Sleep -Milliseconds $Delay # if we send click too fast it can fail to register.
             $CdpServer.SendCommand($Command, [WaitForResponse]::CommandId)
         )
 
-        [System.Threading.SpinWait]::SpinUntil({
-                $CommandResponse = $CommandIdWaiter.Where({ $CdpServer.SharedState.MessageHistory.ContainsKey([version]::new($_, 0)) })
-                $CommandResponse.Count -eq 2
-            }
-        )
+        foreach ($Id in $CommandIds) {
+            $History = $CdpServer.SharedState.CommandHistory[$Id]
+            $History.CommandReady.Wait()
+            $History.CommandReady.Dispose()
+            $History.CommandReady = $null
+        }
 
         $_
     }

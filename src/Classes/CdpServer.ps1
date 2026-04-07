@@ -17,7 +17,6 @@ class CdpServer {
         MessageWriter = $null
         MessageWriterHandle = $null
     }
-    [System.Collections.Concurrent.ConcurrentDictionary[string, string]]$CommandHistory = [System.Collections.Concurrent.ConcurrentDictionary[string, string]]::new()
 
     CdpServer([string]$BrowserPath, [object]$StreamOutput, [string[]]$BrowserArgs, [int]$AdditionalThreads, [hashtable]$Callbacks) {
         $this.Init($BrowserPath, $StreamOutput, $BrowserArgs, $AdditionalThreads, $Callbacks, $null)
@@ -37,6 +36,7 @@ class CdpServer {
 
         $this.SharedState.CdpServer = $this
         $this.SharedState.MessageHistory = [System.Collections.Concurrent.ConcurrentDictionary[version, object]]::new()
+        $this.SharedState.CommandHistory = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
         $this.SharedState.CommandId = 0
         $this.SharedState.Targets = [System.Collections.Concurrent.ConcurrentDictionary[string, CdpPage]]::new()
         $this.SharedState.Sessions = [System.Collections.Concurrent.ConcurrentDictionary[string, CdpPage]]::new()
@@ -133,6 +133,10 @@ class CdpServer {
                     do {
                         $SucessfullyAdded = if ($Response.id) {
                             $SharedState.MessageHistory.TryAdd([version]::new($LastCommandId, 0), $Response)
+                            switch ($SharedState.CommandHistory[$Response.id].WaitForResponse) {
+                                'None' { break }
+                                Default { $SharedState.CommandHistory[$Response.id].CommandReady.Set() }
+                            }
                         } else {
                             $SharedState.MessageHistory.TryAdd([version]::new($LastCommandId, $ResponseIndex++), $Response)
                         }
@@ -193,26 +197,31 @@ class CdpServer {
     [object]SendCommand([hashtable]$Command, [WaitForResponse]$WaitForResponse) {
         # This should be the only place where $this.SharedState.CommandId is incremented.
         $CommandId = $this.SharedState.AddOrUpdate('CommandId', 1, { param($Key, $OldValue) $OldValue + 1 })
-        $null = $this.CommandHistory.TryAdd($CommandId, $Command.method)
+
+        $null = $this.SharedState.CommandHistory.TryAdd($CommandId, @{
+                Method = $Command.method
+                CommandReady = [System.Threading.ManualResetEventSlim]::new($false)
+                WaitForResponse = $WaitForResponse
+            }
+        )
+
         $Command.id = $CommandId
         $JsonCommand = $Command | ConvertTo-Json -Depth 10 -Compress
         $CommandBytes = [System.Text.Encoding]::UTF8.GetBytes($JsonCommand) + 0
         $this.SharedState.IO.CommandQueue.Add($CommandBytes)
+
         $Response = switch ($WaitForResponse) {
             ([WaitForResponse]::None) {
-                $null
-                break
+                $this.SharedState.CommandHistory[$CommandId].CommandReady.Dispose()
+                $this.SharedState.CommandHistory[$CommandId].CommandReady = $null
             }
             ([WaitForResponse]::Message) {
-                $AwaitedMessage = $null
-                [System.Threading.SpinWait]::SpinUntil({ $this.SharedState.MessageHistory.TryGetValue([version]::new($CommandId, 0), [ref]$AwaitedMessage) })
-                $AwaitedMessage
-                break
+                $this.SharedState.CommandHistory[$CommandId].CommandReady.Wait()
+                $this.SharedState.MessageHistory[[version]::new($CommandId, 0)]
+                $this.SharedState.CommandHistory[$CommandId].CommandReady.Dispose()
+                $this.SharedState.CommandHistory[$CommandId].CommandReady = $null
             }
-            ([WaitForResponse]::CommandId) {
-                $CommandId
-                break
-            }
+            ([WaitForResponse]::CommandId) { $CommandId }
         }
 
         return $Response
@@ -252,9 +261,8 @@ class CdpServer {
 
     [object]ShowMessageHistory() {
         $CommandSnapshot = @{}
-        $Commands = $this.CommandHistory.GetEnumerator()
-        foreach ($Message in $Commands) {
-            $CommandSnapshot[[int]$Message.Key] = $Message.Value
+        foreach ($Message in $this.SharedState.CommandHistory.GetEnumerator()) {
+            $CommandSnapshot[[int]$Message.Key] = $Message.Value.Method
         }
         $Events = $this.SharedState.MessageHistory.GetEnumerator() | Sort-Object -Property Key | Select-Object -Property @(
             @{Name = 'id'; Expression = { $_.Value.id } },
