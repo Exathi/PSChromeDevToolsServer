@@ -49,8 +49,6 @@ class CdpServer {
 
         $this.SharedState.Commands = @{
             SendRuntimeEvaluate = $this.CreateDelegate($this.SendRuntimeEvaluate)
-            GetPageBySessionId = $this.CreateDelegate($this.GetPageBySessionId)
-            GetPageByTargetId = $this.CreateDelegate($this.GetPageByTargetId)
         }
 
         $this.SharedState.EventHandler = [CdpEventHandler]::new($this.SharedState) # New-UnboundClassInstance -type ([CdpEventHandler]) -arguments @($this.SharedState)
@@ -218,15 +216,6 @@ class CdpServer {
         }
 
         return $Response
-    }
-
-    [CdpPage]GetPageBySessionId([string]$SessionId) {
-        $CdpPage = $null
-        if (!$this.SharedState.Sessions.TryGetValue($SessionId, [ref]$CdpPage)) {
-            $CdpPageReady = $this.SharedState.EventHandler.NewSessions.GetOrAdd($SessionId, [System.Threading.ManualResetEventSlim]::new($false))
-            $CdpPageReady.Wait()
-        }
-        return $this.SharedState.Sessions[$SessionId]
     }
 
     [CdpPage]GetPageByTargetId([string]$TargetId) {
