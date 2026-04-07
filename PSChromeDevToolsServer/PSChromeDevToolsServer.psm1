@@ -1,11 +1,16 @@
-
 class CdpFrame {
     [string]$FrameId
     [string]$ParentFrameId
     [string]$SessionId
 
+    hidden [System.Threading.ManualResetEventSlim]$RuntimeReady = [System.Threading.ManualResetEventSlim]::new($false)
+
     CdpFrame ($FrameId, $SessionId) {
-        $this.ResetLoadingState()
+        $this.LoadingState['NetworkIdle'] = [System.Threading.ManualResetEventSlim]::new($false)
+        $this.LoadingState['FrameStoppedLoading'] = [System.Threading.ManualResetEventSlim]::new($false)
+        $this.LoadingState['Load'] = [System.Threading.ManualResetEventSlim]::new($false)
+        $this.LoadingState['FirstPaint'] = [System.Threading.ManualResetEventSlim]::new($false)
+
         $this.FrameId = $FrameId
         $this.ParentFrameId = $null
         $this.SessionId = $SessionId
@@ -13,13 +18,22 @@ class CdpFrame {
     }
 
     [System.Collections.Concurrent.ConcurrentDictionary[string, object]]$PageInfo = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
-    [System.Collections.Concurrent.ConcurrentDictionary[string, bool]]$LoadingState = [System.Collections.Concurrent.ConcurrentDictionary[string, bool]]::new()
+    [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]$LoadingState = [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]::new()
 
     [void]ResetLoadingState() {
-        $this.LoadingState['NetworkIdle'] = $false
-        $this.LoadingState['FrameStoppedLoading'] = $false
-        $this.LoadingState['Load'] = $false
-        $this.LoadingState['FirstPaint'] = $false
+        $this.LoadingState['NetworkIdle'].Reset()
+        $this.LoadingState['FrameStoppedLoading'].Reset()
+        $this.LoadingState['Load'].Reset()
+        $this.LoadingState['FirstPaint'].Reset()
+    }
+
+    [void]Dispose() {
+        $this.RuntimeReady.Set()
+        $this.RuntimeReady.Dispose()
+        foreach ($LoadingState in $this.LoadingState.GetEnumerator()) {
+            $LoadingState.Value.Set()
+            $LoadingState.Value.Dispose()
+        }
     }
 }
 
@@ -33,7 +47,15 @@ class CdpPage {
     [int]$ProcessId
     [object]$CdpServer
 
+    hidden [System.Threading.ManualResetEventSlim]$SessionReady = [System.Threading.ManualResetEventSlim]::new($false)
+    hidden [System.Threading.ManualResetEventSlim]$RuntimeReady = [System.Threading.ManualResetEventSlim]::new($false)
+
     CdpPage($TargetId, $Url, $Title, $BrowserContextId, $CdpServer) {
+        $this.LoadingState['NetworkIdle'] = [System.Threading.ManualResetEventSlim]::new($false)
+        $this.LoadingState['FrameStoppedLoading'] = [System.Threading.ManualResetEventSlim]::new($false)
+        $this.LoadingState['Load'] = [System.Threading.ManualResetEventSlim]::new($false)
+        $this.LoadingState['FirstPaint'] = [System.Threading.ManualResetEventSlim]::new($false)
+
         $this.TargetId = $TargetId
         $this.Url = $Url
         $this.Title = $Title
@@ -42,8 +64,6 @@ class CdpPage {
 
         $this.TargetInfo['SessionId'] = $null
 
-        $this.ResetLoadingState()
-
         $this.PageInfo['RuntimeUniqueId'] = $null
         $this.PageInfo['ObjectId'] = $null
         $this.PageInfo['Node'] = $null
@@ -51,22 +71,38 @@ class CdpPage {
     }
 
     [System.Collections.Concurrent.ConcurrentDictionary[string, object]]$TargetInfo = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
-    [System.Collections.Concurrent.ConcurrentDictionary[string, bool]]$LoadingState = [System.Collections.Concurrent.ConcurrentDictionary[string, bool]]::new()
-    [System.Collections.Concurrent.ConcurrentDictionary[string, object]]$Frames = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
+    [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]$LoadingState = [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]::new()
+    [System.Collections.Concurrent.ConcurrentDictionary[string, CdpFrame]]$Frames = [System.Collections.Concurrent.ConcurrentDictionary[string, CdpFrame]]::new()
     [System.Collections.Concurrent.ConcurrentDictionary[string, object]]$PageInfo = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
 
     [void]ResetLoadingState() {
-        $this.LoadingState['NetworkIdle'] = $false
-        $this.LoadingState['FrameStoppedLoading'] = $false
-        $this.LoadingState['Load'] = $false
-        $this.LoadingState['FirstPaint'] = $false
-        $this.LoadingState['FrameNavigated'] = $true
+        $this.LoadingState['NetworkIdle'].Reset()
+        $this.LoadingState['FrameStoppedLoading'].Reset()
+        $this.LoadingState['Load'].Reset()
+        $this.LoadingState['FirstPaint'].Reset()
+    }
+
+    [void]Dispose() {
+        $this.SessionReady.Set()
+        $this.RuntimeReady.Set()
+        $this.SessionReady.Dispose()
+        $this.RuntimeReady.Dispose()
+        foreach ($LoadingState in $this.LoadingState.GetEnumerator()) {
+            $LoadingState.Value.Set()
+            $LoadingState.Value.Dispose()
+        }
+
+        foreach ($CdpFrame in $this.Frames.GetEnumerator()) {
+            $CdpFrame.Dispose()
+        }
     }
 }
 
 # [NoRunspaceAffinity()]
 class CdpEventHandler {
-    [System.Collections.Generic.Dictionary[string, object]]$SharedState
+    [System.Collections.Concurrent.ConcurrentDictionary[string, object]]$SharedState
+    [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]$NewTargets = [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]::new()
+    [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]$NewSessions = [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]::new()
     [hashtable]$EventHandlers
 
     CdpEventHandler([System.Collections.Concurrent.ConcurrentDictionary[string, object]]$SharedState) {
@@ -78,9 +114,7 @@ class CdpEventHandler {
         $this.EventHandlers = @{
             'Page.frameAttached' = $this.FrameAttached
             'Page.frameDetached' = $this.FrameDetached
-            'Page.FrameNavigated' = $this.FrameNavigated
             'Page.lifecycleEvent' = $this.LifecycleEvent
-            'Page.frameStartedNavigating' = $this.FrameStartedNavigating
             'Page.frameStoppedLoading' = $this.FrameStoppedLoading
             'Target.targetCreated' = $this.TargetCreated
             'Target.targetDestroyed' = $this.TargetDestroyed
@@ -117,61 +151,46 @@ class CdpEventHandler {
         $CdpPage = $this.GetPageBySessionId($Response.sessionId)
         $CdpFrame = $null
         if ($CdpPage.Frames.TryRemove($Response.params.frameId, [ref]$CdpFrame)) {
-            $CdpFrame.LoadingState['FrameStoppedLoading'] = $true
-            $CdpFrame.LoadingState['NetworkIdle'] = $true
-            $CdpFrame.LoadingState['FirstPaint'] = $true
-        }
-    }
-
-    hidden [void]FrameNavigated($Response) {
-        $CdpPage = $this.GetPageBySessionId($Response.sessionId)
-        if ($CdpPage.TargetId -eq $Response.params.frame.id) {
-            $CdpPage.LoadingState['FrameNavigated'] = $true
+            $CdpFrame.Dispose()
         }
     }
 
     hidden [void]LifecycleEvent($Response) {
         $CdpPage = $this.GetPageBySessionId($Response.sessionId)
+
         $Target = if ($CdpPage.TargetId -eq $Response.params.frameId) {
             $CdpPage
         } else {
             $CdpPage.Frames.GetOrAdd($Response.params.frameId, [CdpFrame]::new($Response.params.frameId, $Response.sessionId))
         }
-        $LifeCycleName = $Response.params.name
-        if ($LifeCycleName -eq 'networkIdle' -or $LifeCycleName -eq 'load' -or $LifeCycleName -eq 'firstPaint') {
-            switch ($LifeCycleName) {
-                'networkIdle' {
-                    $Target.LoadingState['NetworkIdle'] = $true
-                    break
-                }
-                'load' {
-                    $Target.LoadingState['Load'] = $true
-                    break
-                }
-                'firstPaint' {
-                    $Target.LoadingState['FirstPaint'] = $true
-                    break
-                }
-            }
-        }
-    }
 
-    hidden [void]FrameStartedNavigating($Response) {
-        $CdpPage = $this.GetPageBySessionId($Response.sessionId)
-        if ($CdpPage.TargetId -eq $Response.params.frameId) {
-            $CdpPage.LoadingState['FrameNavigated'] = $false
+        $LifeCycleName = $Response.params.name
+
+        switch ($LifeCycleName) {
+            'networkIdle' {
+                $Target.LoadingState['NetworkIdle'].Set()
+                break
+            }
+            'load' {
+                $Target.LoadingState['Load'].Set()
+                break
+            }
+            'firstPaint' {
+                $Target.LoadingState['FirstPaint'].Set()
+                break
+            }
         }
     }
 
     hidden [void]FrameStoppedLoading($Response) {
         $CdpPage = $this.GetPageBySessionId($Response.sessionId)
         if ($CdpPage.TargetId -eq $Response.params.frameId) {
-            $CdpPage.LoadingState['FrameStoppedLoading'] = $true
+            $CdpPage.LoadingState['FrameStoppedLoading'].Set()
         } else {
             $Frame = $null
             $null = $CdpPage.Frames.TryGetValue($Response.params.frameId, [ref]$Frame)
             if ($Frame) {
-                $Frame.LoadingState['FrameStoppedLoading'] = $true
+                $Frame.LoadingState['FrameStoppedLoading'].Set()
             }
         }
     }
@@ -179,13 +198,16 @@ class CdpEventHandler {
     hidden [void]TargetCreated($Response) {
         $Target = $Response.params.targetInfo
         $CdpPage = [CdpPage]::new($Target.targetId, $Target.Url, $Target.Title, $Target.browserContextId, $this.SharedState.CdpServer)
-        $null = $this.SharedState.Targets.TryAdd($Target.targetId, $CdpPage)
+        $CdpPageReady = $this.NewTargets.GetOrAdd($Target.targetId, [System.Threading.ManualResetEventSlim]::new($false))
+        $this.SharedState.Targets[$Target.targetId] = $CdpPage
+        $CdpPageReady.Set()
     }
 
     hidden [void]TargetDestroyed($Response) {
         $CdpPage = $this.GetPageByTargetId($Response.params.targetId)
         if ($CdpPage) {
             $null = $this.SharedState.Targets.TryRemove($CdpPage.TargetId, [ref]$null)
+            $CdpPage.Dispose()
         }
     }
 
@@ -200,10 +222,13 @@ class CdpEventHandler {
     }
 
     hidden [void]AttachedToTarget($Response) {
-        $Target = $Response.params.targetInfo
-        $CdpPage = $this.GetPageByTargetId($Target.targetId)
-        $CdpPage.TargetInfo.AddOrUpdate('SessionId', $Response.params.sessionId, { param($Key, $OldValue) $Response.params.sessionId })
-        $null = $this.SharedState.Sessions.TryAdd($Response.params.sessionId, $CdpPage)
+        $SessionId = $Response.params.sessionId
+        $CdpPageReady = $this.NewSessions.GetOrAdd($SessionId, [System.Threading.ManualResetEventSlim]::new($false))
+        $CdpPage = $this.GetPageByTargetId($Response.params.targetInfo.targetId)
+        $CdpPage.TargetInfo['SessionId'] = $SessionId
+        $this.SharedState.Sessions[$SessionId] = $CdpPage
+        $CdpPage.SessionReady.Set()
+        $CdpPageReady.Set()
     }
 
     hidden [void]DetachedFromTarget($Response) {
@@ -214,6 +239,12 @@ class CdpEventHandler {
 
     hidden [void]ExecutionContextsCleared($Response) {
         $CdpPage = $this.GetPageBySessionId($Response.sessionId)
+        if ($CdpPage.RuntimeReady.IsSet) { $CdpPage.RuntimeReady.Reset() }
+        foreach ($CdpFrame in $CdpPage.Frames.GetEnumerator()) {
+            if ($CdpFrame.RuntimeReady.IsSet) {
+                $CdpFrame.Dispose()
+            }
+        }
         $CdpPage.Frames.Clear()
     }
 
@@ -222,22 +253,30 @@ class CdpEventHandler {
         $FrameId = $Response.params.context.auxData.frameId
         if ($CdpPage.TargetId -eq $FrameId) {
             $CdpPage.PageInfo.AddOrUpdate('RuntimeUniqueId', $Response.params.context.uniqueId, { param($Key, $OldValue) $Response.params.context.uniqueId } )
+            $CdpPage.RuntimeReady.Set()
         } else {
             $Frame = $CdpPage.Frames.GetOrAdd($FrameId, [CdpFrame]::new($FrameId, $Response.sessionId))
             $Frame.PageInfo['RuntimeUniqueId'] = $Response.params.context.uniqueId
+            $Frame.RuntimeReady.Set()
         }
     }
 
     [CdpPage]GetPageBySessionId([string]$SessionId) {
         $CdpPage = $null
-        [System.Threading.SpinWait]::SpinUntil({ $this.SharedState.Sessions.TryGetValue($SessionId, [ref]$CdpPage) })
-        return $CdpPage
+        if (!$this.SharedState.Sessions.TryGetValue($SessionId, [ref]$CdpPage)) {
+            $CdpPageReady = $this.NewSessions.GetOrAdd($SessionId, [System.Threading.ManualResetEventSlim]::new($false))
+            $CdpPageReady.Wait()
+        }
+        return $this.SharedState.Sessions[$SessionId]
     }
 
     [CdpPage]GetPageByTargetId([string]$TargetId) {
         $CdpPage = $null
-        [System.Threading.SpinWait]::SpinUntil({ $this.SharedState.Targets.TryGetValue($TargetId, [ref]$CdpPage) })
-        return $CdpPage
+        if (!$this.SharedState.Targets.TryGetValue($TargetId, [ref]$CdpPage)) {
+            $CdpPageReady = $this.NewTargets.GetOrAdd($TargetId, [System.Threading.ManualResetEventSlim]::new($false))
+            $CdpPageReady.Wait()
+        }
+        return $this.SharedState.Targets[$TargetId]
     }
 }
 
@@ -271,8 +310,6 @@ class CdpServer {
     }
 
     hidden [void]Init([string]$BrowserPath, [object]$StreamOutput, [string[]]$BrowserArgs, [int]$AdditionalThreads, [hashtable]$Callbacks, [System.Management.Automation.Runspaces.InitialSessionState]$State) {
-        $this.SharedState = [System.Collections.Generic.Dictionary[string, object]]::new()
-
         $this.SharedState.IO = @{
             PipeWriter = [System.IO.Pipes.AnonymousPipeServerStream]::new([System.IO.Pipes.PipeDirection]::Out, [System.IO.HandleInheritability]::Inheritable)
             PipeReader = [System.IO.Pipes.AnonymousPipeServerStream]::new([System.IO.Pipes.PipeDirection]::In, [System.IO.HandleInheritability]::Inheritable)
@@ -467,14 +504,20 @@ class CdpServer {
 
     [CdpPage]GetPageBySessionId([string]$SessionId) {
         $CdpPage = $null
-        [System.Threading.SpinWait]::SpinUntil({ $this.SharedState.Sessions.TryGetValue($SessionId, [ref]$CdpPage) })
-        return $CdpPage
+        if (!$this.SharedState.Sessions.TryGetValue($SessionId, [ref]$CdpPage)) {
+            $CdpPageReady = $this.SharedState.EventHandler.NewSessions.GetOrAdd($SessionId, [System.Threading.ManualResetEventSlim]::new($false))
+            $CdpPageReady.Wait()
+        }
+        return $this.SharedState.Sessions[$SessionId]
     }
 
     [CdpPage]GetPageByTargetId([string]$TargetId) {
         $CdpPage = $null
-        [System.Threading.SpinWait]::SpinUntil({ $this.SharedState.Targets.TryGetValue($TargetId, [ref]$CdpPage) })
-        return $CdpPage
+        if (!$this.SharedState.Targets.TryGetValue($TargetId, [ref]$CdpPage)) {
+            $CdpPageReady = $this.SharedState.EventHandler.NewTargets.GetOrAdd($TargetId, [System.Threading.ManualResetEventSlim]::new($false))
+            $CdpPageReady.Wait()
+        }
+        return $this.SharedState.Targets[$TargetId]
     }
 
     [void]SendRuntimeEvaluate([string]$SessionId, [string]$Expression) {
@@ -494,8 +537,6 @@ class CdpServer {
 
         $Command = Get-Target.setAutoAttach
         $this.SendCommand($Command)
-
-        [System.Threading.SpinWait]::SpinUntil({ $this.SharedState.Targets.Count -ne 0 })
 
         $CdpPage = $this.GetFirstAvailableCdpPage()
 
@@ -520,54 +561,44 @@ class CdpServer {
     }
 
     [CdpPage]GetFirstAvailableCdpPage() {
-        $AvailableTarget = $null
+        $AvailableTargetId = $null
         do {
             $TargetCreatedEvents = $this.SharedState.MessageHistory.GetEnumerator() | Sort-Object -Property Key | Where-Object {
                 $_.Value.method -eq 'Target.targetCreated'
             }
 
-            $AvailableTarget = foreach ($TargetId in $TargetCreatedEvents.Value.params.targetInfo.targetId) {
+            $AvailableTargetId = foreach ($TargetId in $TargetCreatedEvents.Value.params.targetInfo.targetId) {
                 $Target = $this.SharedState.Targets.GetEnumerator() | Where-Object { $_.Value.TargetId -eq $TargetId }
-                $Target
-                if ($Target) { break }
+                if ($Target) {
+                    $TargetId
+                    break
+                }
             }
-        } while (!$AvailableTarget)
-        return $this.GetPageByTargetId($AvailableTarget.Value.TargetId)
+        } while (!$AvailableTargetId)
+        return $this.SharedState.Targets[$AvailableTargetId]
     }
 
     [void]WaitForPageLoad([CdpPage]$CdpPage) {
-        if ($CdpPage.LoadingState['FrameNavigated']) {
-            [System.Threading.SpinWait]::SpinUntil({
-                    $CdpPage.LoadingState['FrameNavigated'] -or
-                    $CdpPage.LoadingState['Page.frameStoppedLoading']
-                }
-            )
-        }
+        $CdpPage.LoadingState['Load'].Wait()
+        $CdpPage.LoadingState['FrameStoppedLoading'].Wait()
+        $CdpPage.RuntimeReady.Wait()
 
-        [System.Threading.SpinWait]::SpinUntil({
-                $CdpPage.LoadingState['Load']
-            }
-        )
-
-        # Wait for all child frames to have executioncontext
-        if ($CdpPage.Frames.Count -gt 0) {
-            [System.Threading.SpinWait]::SpinUntil({
-                    $RuntimeUniqueIdSnapshot = $CdpPage.Frames.Values.PageInfo.RuntimeUniqueId
-                    $null -notin $RuntimeUniqueIdSnapshot
-                }
-            )
+        # Wait for all child frames to load and have executioncontext
+        foreach ($CdpFrame in $CdpPage.Frames.GetEnumerator()) {
+            $CdpFrame.Value.LoadingState['Load'].Wait()
+            $CdpFrame.Value.LoadingState['FrameStoppedLoading'].Wait()
+            $CdpFrame.Value.RuntimeReady.Wait()
         }
     }
 
     [void]SetupNewPage([CdpPage]$CdpPage) {
-        $SessionId = $null
-        [System.Threading.SpinWait]::SpinUntil({ $null = $CdpPage.TargetInfo.TryGetValue('SessionId', [ref]$SessionId); $null -ne $SessionId })
+        $CdpPage.SessionReady.Wait()
+        $SessionId = $CdpPage.TargetInfo['SessionId']
 
         $Command = Get-Runtime.enable $SessionId
         $null = $this.SendCommand($Command, [WaitForResponse]::Message)
 
-        $RuntimeUniqueId = $null
-        [System.Threading.SpinWait]::SpinUntil({ $null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$RuntimeUniqueId); $null -ne $RuntimeUniqueId })
+        $CdpPage.RuntimeReady.Wait()
 
         $Command = Get-Page.enable $SessionId
         $null = $this.SendCommand($Command, [WaitForResponse]::Message)
@@ -575,12 +606,8 @@ class CdpServer {
         $Command = Get-Page.setLifecycleEventsEnabled $SessionId $true
         $null = $this.SendCommand($Command, [WaitForResponse]::Message)
 
-        if ($CdpPage.Frames.Count -gt 0) {
-            [System.Threading.SpinWait]::SpinUntil({
-                    $RuntimeUniqueIdSnapshot = $CdpPage.Frames.Values.PageInfo.RuntimeUniqueId
-                    $null -notin $RuntimeUniqueIdSnapshot
-                }
-            )
+        foreach ($CdpFrame in $CdpPage.Frames.GetEnumerator()) {
+            $CdpFrame.Value.RuntimeReady.Wait()
         }
     }
 
@@ -1085,22 +1112,16 @@ function Invoke-CdpPageNavigate {
     process {
         $CdpServer = $CdpPage.CdpServer
         $SessionId = $CdpPage.TargetInfo['SessionId']
-        $OldRuntimeUniqueId = $CdpPage.PageInfo['RuntimeUniqueId']
 
         $CdpPage.ResetLoadingState()
-        $CdpPage.Frames.Values.ForEach({ $_.ResetLoadingState() })
+        $CdpPage.RuntimeReady.Reset()
+        foreach ($CdpFrame in $CdpPage.Frames.GetEnumerator()) {
+            $CdpFrame.Value.Dispose()
+        }
+        $CdpPage.Frames.Clear()
 
         $Command = Get-Page.navigate $SessionId $Url
         $null = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
-
-        $NewRuntimeUniqueId = $null
-        if ($null -ne $OldRuntimeUniqueId) {
-            [System.Threading.SpinWait]::SpinUntil({
-                    $null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$NewRuntimeUniqueId)
-                    $NewRuntimeUniqueId -ne $OldRuntimeUniqueId
-                }
-            )
-        }
 
         $CdpServer.WaitForPageLoad($CdpPage)
 
@@ -1384,11 +1405,9 @@ function Wait-CdpPageLifecycleEvent {
             $Target = $InputObject
         }
 
-        $null = [System.Threading.SpinWait]::SpinUntil({
-                $States = $Events | ForEach-Object { $Target.LoadingState[$_] }
-                $States -notcontains $false
-            }, $Timeout)
+        $Events | ForEach-Object { $Target.LoadingState[$_].Wait() }
 
         if ($_) { $CdpPage }
     }
 }
+
