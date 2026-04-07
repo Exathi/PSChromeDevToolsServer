@@ -51,34 +51,33 @@ class CdpEventHandler {
         $CdpPage = $this.GetPageBySessionId($Response.sessionId)
         $CdpFrame = $null
         if ($CdpPage.Frames.TryRemove($Response.params.frameId, [ref]$CdpFrame)) {
-            $CdpFrame.LoadingState['FrameStoppedLoading'] = $true
-            $CdpFrame.LoadingState['NetworkIdle'] = $true
-            $CdpFrame.LoadingState['FirstPaint'] = $true
+            $CdpFrame.Dispose()
         }
     }
 
     hidden [void]LifecycleEvent($Response) {
         $CdpPage = $this.GetPageBySessionId($Response.sessionId)
+
         $Target = if ($CdpPage.TargetId -eq $Response.params.frameId) {
             $CdpPage
         } else {
             $CdpPage.Frames.GetOrAdd($Response.params.frameId, [CdpFrame]::new($Response.params.frameId, $Response.sessionId))
         }
+
         $LifeCycleName = $Response.params.name
-        if ($LifeCycleName -eq 'networkIdle' -or $LifeCycleName -eq 'load' -or $LifeCycleName -eq 'firstPaint') {
-            switch ($LifeCycleName) {
-                'networkIdle' {
-                    $Target.LoadingState['NetworkIdle'] = $true
-                    break
-                }
-                'load' {
-                    $Target.LoadingState['Load'] = $true
-                    break
-                }
-                'firstPaint' {
-                    $Target.LoadingState['FirstPaint'] = $true
-                    break
-                }
+
+        switch ($LifeCycleName) {
+            'networkIdle' {
+                $Target.LoadingState['NetworkIdle'].Set()
+                break
+            }
+            'load' {
+                $Target.LoadingState['Load'].Set()
+                break
+            }
+            'firstPaint' {
+                $Target.LoadingState['FirstPaint'].Set()
+                break
             }
         }
     }
@@ -86,12 +85,12 @@ class CdpEventHandler {
     hidden [void]FrameStoppedLoading($Response) {
         $CdpPage = $this.GetPageBySessionId($Response.sessionId)
         if ($CdpPage.TargetId -eq $Response.params.frameId) {
-            $CdpPage.LoadingState['FrameStoppedLoading'] = $true
+            $CdpPage.LoadingState['FrameStoppedLoading'].Set()
         } else {
             $Frame = $null
             $null = $CdpPage.Frames.TryGetValue($Response.params.frameId, [ref]$Frame)
             if ($Frame) {
-                $Frame.LoadingState['FrameStoppedLoading'] = $true
+                $Frame.LoadingState['FrameStoppedLoading'].Set()
             }
         }
     }
@@ -108,11 +107,7 @@ class CdpEventHandler {
         $CdpPage = $this.GetPageByTargetId($Response.params.targetId)
         if ($CdpPage) {
             $null = $this.SharedState.Targets.TryRemove($CdpPage.TargetId, [ref]$null)
-            $CdpPage.SessionReady.Dispose()
-            $CdpPage.RuntimeReady.Dispose()
-            if ($CdpPage.Frames.Count -gt 0) {
-                $CdpPage.Frames.Values.RuntimeReady.Dispose()
-            }
+            $CdpPage.Dispose()
         }
     }
 
@@ -144,9 +139,13 @@ class CdpEventHandler {
 
     hidden [void]ExecutionContextsCleared($Response) {
         $CdpPage = $this.GetPageBySessionId($Response.sessionId)
-        if ($CdpPage.Frames.Count -gt 0) { $CdpPage.Frames.Values.RuntimeReady.Dispose() }
-        $CdpPage.Frames.Clear()
         if ($CdpPage.RuntimeReady.IsSet) { $CdpPage.RuntimeReady.Reset() }
+        foreach ($CdpFrame in $CdpPage.Frames.GetEnumerator()) {
+            if ($CdpFrame.RuntimeReady.IsSet) {
+                $CdpFrame.Dispose()
+            }
+        }
+        $CdpPage.Frames.Clear()
     }
 
     hidden [void]ExecutionContextCreated($Response) {

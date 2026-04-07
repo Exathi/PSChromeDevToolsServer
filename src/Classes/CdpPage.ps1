@@ -12,6 +12,11 @@ class CdpPage {
     hidden [System.Threading.ManualResetEventSlim]$RuntimeReady = [System.Threading.ManualResetEventSlim]::new($false)
 
     CdpPage($TargetId, $Url, $Title, $BrowserContextId, $CdpServer) {
+        $this.LoadingState['NetworkIdle'] = [System.Threading.ManualResetEventSlim]::new($false)
+        $this.LoadingState['FrameStoppedLoading'] = [System.Threading.ManualResetEventSlim]::new($false)
+        $this.LoadingState['Load'] = [System.Threading.ManualResetEventSlim]::new($false)
+        $this.LoadingState['FirstPaint'] = [System.Threading.ManualResetEventSlim]::new($false)
+
         $this.TargetId = $TargetId
         $this.Url = $Url
         $this.Title = $Title
@@ -20,8 +25,6 @@ class CdpPage {
 
         $this.TargetInfo['SessionId'] = $null
 
-        $this.ResetLoadingState()
-
         $this.PageInfo['RuntimeUniqueId'] = $null
         $this.PageInfo['ObjectId'] = $null
         $this.PageInfo['Node'] = $null
@@ -29,14 +32,29 @@ class CdpPage {
     }
 
     [System.Collections.Concurrent.ConcurrentDictionary[string, object]]$TargetInfo = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
-    [System.Collections.Concurrent.ConcurrentDictionary[string, bool]]$LoadingState = [System.Collections.Concurrent.ConcurrentDictionary[string, bool]]::new()
-    [System.Collections.Concurrent.ConcurrentDictionary[string, object]]$Frames = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
+    [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]$LoadingState = [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]::new()
+    [System.Collections.Concurrent.ConcurrentDictionary[string, CdpFrame]]$Frames = [System.Collections.Concurrent.ConcurrentDictionary[string, CdpFrame]]::new()
     [System.Collections.Concurrent.ConcurrentDictionary[string, object]]$PageInfo = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
 
     [void]ResetLoadingState() {
-        $this.LoadingState['NetworkIdle'] = $false
-        $this.LoadingState['FrameStoppedLoading'] = $false
-        $this.LoadingState['Load'] = $false
-        $this.LoadingState['FirstPaint'] = $false
+        $this.LoadingState['NetworkIdle'].Reset()
+        $this.LoadingState['FrameStoppedLoading'].Reset()
+        $this.LoadingState['Load'].Reset()
+        $this.LoadingState['FirstPaint'].Reset()
+    }
+
+    [void]Dispose() {
+        $this.SessionReady.Set()
+        $this.RuntimeReady.Set()
+        $this.SessionReady.Dispose()
+        $this.RuntimeReady.Dispose()
+        foreach ($LoadingState in $this.LoadingState.GetEnumerator()) {
+            $LoadingState.Value.Set()
+            $LoadingState.Value.Dispose()
+        }
+
+        foreach ($CdpFrame in $this.Frames.GetEnumerator()) {
+            $CdpFrame.Dispose()
+        }
     }
 }

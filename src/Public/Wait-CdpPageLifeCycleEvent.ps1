@@ -27,10 +27,7 @@ function Wait-CdpPageLifecycleEvent {
             $Target = $InputObject
         }
 
-        $null = [System.Threading.SpinWait]::SpinUntil({
-                $States = $Events | ForEach-Object { $Target.LoadingState[$_] }
-                $States -notcontains $false
-            }, $Timeout)
+        $Events | ForEach-Object { $Target.LoadingState[$_].Wait() }
 
         if ($_) { $CdpPage }
     }

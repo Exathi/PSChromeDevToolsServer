@@ -15,22 +15,16 @@ function Invoke-CdpPageNavigate {
     process {
         $CdpServer = $CdpPage.CdpServer
         $SessionId = $CdpPage.TargetInfo['SessionId']
-        $OldRuntimeUniqueId = $CdpPage.PageInfo['RuntimeUniqueId']
 
         $CdpPage.ResetLoadingState()
-        $CdpPage.Frames.Values.ForEach({ $_.ResetLoadingState() })
+        $CdpPage.RuntimeReady.Reset()
+        foreach ($CdpFrame in $CdpPage.Frames.GetEnumerator()) {
+            $CdpFrame.Value.Dispose()
+        }
+        $CdpPage.Frames.Clear()
 
         $Command = Get-Page.navigate $SessionId $Url
         $null = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
-
-        $NewRuntimeUniqueId = $null
-        if ($null -ne $OldRuntimeUniqueId) {
-            [System.Threading.SpinWait]::SpinUntil({
-                    $null = $CdpPage.PageInfo.TryGetValue('RuntimeUniqueId', [ref]$NewRuntimeUniqueId)
-                    $NewRuntimeUniqueId -ne $OldRuntimeUniqueId
-                }
-            )
-        }
 
         $CdpServer.WaitForPageLoad($CdpPage)
 

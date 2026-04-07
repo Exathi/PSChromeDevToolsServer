@@ -297,15 +297,15 @@ class CdpServer {
     }
 
     [void]WaitForPageLoad([CdpPage]$CdpPage) {
-        [System.Threading.SpinWait]::SpinUntil({
-                $CdpPage.LoadingState['Load'] -and
-                $CdpPage.LoadingState['FrameStoppedLoading']
-            }
-        )
+        $CdpPage.LoadingState['Load'].Wait()
+        $CdpPage.LoadingState['FrameStoppedLoading'].Wait()
+        $CdpPage.RuntimeReady.Wait()
 
-        # Wait for all child frames to have executioncontext
-        if ($CdpPage.Frames.Count -gt 0) {
-            $CdpPage.Frames.Values.RuntimeReady.Wait()
+        # Wait for all child frames to load and have executioncontext
+        foreach ($CdpFrame in $CdpPage.Frames.GetEnumerator()) {
+            $CdpFrame.Value.LoadingState['Load'].Wait()
+            $CdpFrame.Value.LoadingState['FrameStoppedLoading'].Wait()
+            $CdpFrame.Value.RuntimeReady.Wait()
         }
     }
 
@@ -324,8 +324,8 @@ class CdpServer {
         $Command = Get-Page.setLifecycleEventsEnabled $SessionId $true
         $null = $this.SendCommand($Command, [WaitForResponse]::Message)
 
-        if ($CdpPage.Frames.Count -gt 0) {
-            $CdpPage.Frames.Values.RuntimeReady.Wait()
+        foreach ($CdpFrame in $CdpPage.Frames.GetEnumerator()) {
+            $CdpFrame.Value.RuntimeReady.Wait()
         }
     }
 
