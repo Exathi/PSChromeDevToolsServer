@@ -20,13 +20,13 @@ function Get-CdpFrame {
         $Start = Get-Date
         do {
             $Command = Get-Page.getFrameTree $CdpPage.TargetInfo.SessionId
-            $Response = $CdpPage.CdpServer.SendCommand($Command, 1)
+            $Response = $CdpPage.CdpServer.SendCommand($Command, [WaitForResponse]::Message)
             $FramesTree = Get-CdpFrameTree $Response.result.frameTree
             $Match = $FramesTree.url | Select-String -Pattern $Url
             $MatchedFrame = $FramesTree | Where-Object { $_.url -eq $Match.Line }
             $CdpFrame = $CdpPage.Frames.Values | Where-Object { $_.FrameId -eq $MatchedFrame.id }
             if ($CdpFrame) { break }
-            Start-Sleep 0
+            Start-Sleep -Milliseconds 1
         } while (($Start.AddMilliseconds($Timeout) - (Get-Date)).Milliseconds -gt 0)
 
         if (!$CdpFrame) { throw ('No frame found using: {0}' -f $Url) }
