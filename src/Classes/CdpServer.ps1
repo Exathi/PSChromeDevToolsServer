@@ -214,14 +214,20 @@ class CdpServer {
             ([WaitForResponse]::None) {
                 $this.SharedState.CommandHistory[$CommandId].CommandReady.Dispose()
                 $this.SharedState.CommandHistory[$CommandId].CommandReady = $null
+                $null
+                break
             }
             ([WaitForResponse]::Message) {
                 $this.SharedState.CommandHistory[$CommandId].CommandReady.Wait()
                 $this.SharedState.MessageHistory[[version]::new($CommandId, 0)]
                 $this.SharedState.CommandHistory[$CommandId].CommandReady.Dispose()
                 $this.SharedState.CommandHistory[$CommandId].CommandReady = $null
+                break
             }
-            ([WaitForResponse]::CommandId) { $CommandId }
+            ([WaitForResponse]::CommandId) {
+                $CommandId
+                break
+            }
         }
 
         return $Response
