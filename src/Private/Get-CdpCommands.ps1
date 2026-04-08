@@ -1,21 +1,35 @@
 
 function Get-DOM.describeNode {
-    param($SessionId, $ObjectId)
+    param($SessionId)
     @{
         method = 'DOM.describeNode'
         sessionId = $SessionId
-        params = @{
-            objectId = "$ObjectId"
-        }
+        params = @{}
+    }
+}
+function Get-DOM.disable {
+    param($SessionId)
+    @{
+        method = 'DOM.disable'
+        sessionId = $SessionId
     }
 }
 function Get-DOM.getBoxModel {
-    param($SessionId, $ObjectId)
+    param($SessionId)
     @{
         method = 'DOM.getBoxModel'
         sessionId = $SessionId
+        params = @{}
+    }
+}
+function Get-DOM.getDocument {
+    param($SessionId)
+    @{
+        method = 'DOM.getDocument'
+        sessionId = $SessionId
         params = @{
-            objectId = "$ObjectId"
+            depth = -1
+            pierce = $true
         }
     }
 }

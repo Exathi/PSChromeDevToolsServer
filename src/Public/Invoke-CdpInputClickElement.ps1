@@ -2,10 +2,51 @@ function Invoke-CdpInputClickElement {
     <#
 		.SYNOPSIS
 		Finds and clicks with element in the center of the box. Clicks from the top left of the element when $TopLeft is switched on.
-		.PARAMETER Selector
-		Javascript that returns ONE node object
-		For example:
-		document.querySelectorAll('[name=q]')[0]
+		.PARAMETER FilterScript
+		The scriptblock that will filter find valid nodes.
+        Valid properties are:
+
+        NodeId
+        NodeType
+        ParentId
+        BackendNodeId
+        NodeValue*
+        NodeName*
+        LocalName
+        Attributes*
+        FrameId
+        AttributesString
+        DocumentURL
+
+        *The most common selectors
+        NodeValue = any text on the page
+        NodeName = element tag name
+        Attributes = attributes for the tag such as:
+            Name = id, Value = theId
+            Name = autofocus
+
+        .EXAMPLE
+        $FilterScript = {
+            $_.NodeName -eq '#text' -and
+            $_.NodeValue -eq 'Woo woo'
+        }
+
+        $FilterScript = {
+            $_.NodeName -eq 'a'
+        }
+        $Index = 5
+
+        $FilterScript = {
+            $_.NodeName -eq 'button'
+        }
+        $Index = 0
+
+        $FilterScript = {
+            $_.NodeValue -eq 'submit'
+        }
+
+		.PARAMETER Index
+		The nth number of the Nodes found by FilterScript
 		.PARAMETER Click
 		Number of times to left click the mouse
 		.PARAMETER OffsetX
@@ -24,14 +65,11 @@ function Invoke-CdpInputClickElement {
         [Parameter(Mandatory, ValueFromPipeline)]
         [CdpPage]$CdpPage,
         [Parameter(Mandatory)]
-        [string]$Selector,
-        [Parameter(ParameterSetName = 'Click')]
+        [scriptblock]$FilterScript,
+        [int]$Index = 0,
         [int]$Click = 0,
-        [Parameter(ParameterSetName = 'Click')]
         [int]$OffsetX = 0,
-        [Parameter(ParameterSetName = 'Click')]
         [int]$OffsetY = 0,
-        [Parameter(ParameterSetName = 'Click')]
         [switch]$TopLeft,
         [switch]$BringToFront,
         [ValidateRange(0, [int]::MaxValue)]
@@ -42,28 +80,23 @@ function Invoke-CdpInputClickElement {
         $CdpServer = $CdpPage.CdpServer
         $SessionId = $CdpPage.TargetInfo['SessionId']
 
-        $Command = Get-Runtime.evaluate $SessionId $Selector
-        $Command.params.uniqueContextId = "$($CdpPage.PageInfo['RuntimeUniqueId'])"
-        $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
-
-        $CdpPage.PageInfo['ObjectId'] = $Response.result.result.objectId
+        $CdpPage.PageInfo['Node'] = Test-CdpSelector -CdpPage $CdpPage -FilterScript $FilterScript -Index $Index -EnableDomEvents
+        if ($CdpPage.PageInfo['Node'].nodeType -ne 1 -and $CdpPage.PageInfo['Node'].nodeType -ne 3) { throw ('Node is not an element or text. {0}' -f $CdpPage.PageInfo['Node'].nodeType) }
 
         if ($Click -le 0) { return $_ }
 
-        $Command = Get-DOM.describeNode $SessionId $CdpPage.PageInfo.ObjectId
-        $Command.params.objectId = $CdpPage.PageInfo['ObjectId']
-        $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
-
-        if ($Response.error) {
-            throw ('Error describing node: {0}' -f $Response.error.message)
+        $Command = Get-DOM.getBoxModel $SessionId
+        $Command.params = @{
+            nodeId = $CdpPage.PageInfo['Node'].nodeId
         }
-
-        $CdpPage.PageInfo['Node'] = $Response.result.node
-        if ($Response.result.node.nodeType -ne 1 -and $Response.result.node.nodeType -ne 3) { throw ('Node is not an element or text. {0}' -f $Response.result.node) }
-
-        $Command = Get-DOM.getBoxModel $SessionId $CdpPage.PageInfo['ObjectId']
-        $Command.params.objectId = $CdpPage.PageInfo['ObjectId']
         $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+
+        if ($Response.error) { throw 'Could not get box model. {0}' -f "$($Response.error)" }
+
+        # Disable dom events now that we don't need nodes anymore.
+        $Command = Get-DOM.disable $CdpPage.TargetInfo.SessionId
+        $CdpServer.SendCommand($Command)
+
         $CdpPage.PageInfo['BoxModel'] = $Response.result.model
 
         if ($TopLeft) {
