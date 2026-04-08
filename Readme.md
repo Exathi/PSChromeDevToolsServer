@@ -1,5 +1,5 @@
 # PSChromeDevToolsServer - Powershell Browser Automation
-[![Static Badge](https://img.shields.io/badge/Powershell%20Gallery-0.4.2-blue)](https://www.powershellgallery.com/packages/PSChromeDevToolsServer/)
+[![Static Badge](https://img.shields.io/badge/Powershell%20Gallery-0.5.0-blue)](https://www.powershellgallery.com/packages/PSChromeDevToolsServer/)
 
 
 Automate any Chromium browser with Powershell with `--remote-debugging-pipe` and `--remote-debugging-io-pipe`. I still couldn't find any examples in 2026 that made use of these switches with dotnet without tapping into WinApi functions.
@@ -24,13 +24,15 @@ New-CdpPage - Create new page/tab and returns `[CdpPage]`.
 
 Invoke-CdpPageNavigate - Navigate page and waits for the page to load and the unique javascript context to update for the new page.
 
-Invoke-CdpInputClickElement - Find element with javascript selector and click element via DOM.
+Invoke-CdpInputClickElement - Find element with a selector and click element via DOM.
 
 Invoke-CdpInputSendKeys - Sends keys to browser.
 
 Invoke-CdpRuntimeEvaluate - Run javascript on browser and return raw result.
 
 Invoke-CdpRuntimeAddBinding - Add binding object to enable browser communication to the `[CdpEventHandler]`.
+
+Test-CdpSelector - Find and return valid selectors for viewing.
 
 Wait-CdpPageLifecycleEvent - `[CdpPage]` or output from `Get-CdpFrame` to wait for a LifecycleEvent.
 
@@ -102,4 +104,4 @@ Page events and Javascript are on by default for the first tab.
 
 ## Todo/Considerations
 
-Selectors
+Websocket?

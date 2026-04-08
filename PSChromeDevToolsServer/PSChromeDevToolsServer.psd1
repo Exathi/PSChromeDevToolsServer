@@ -4,7 +4,7 @@
     RootModule = 'PSChromeDevToolsServer.psm1'
 
     # Version number of this module.
-    ModuleVersion = '0.4.2'
+    ModuleVersion = '0.5.0'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -65,15 +65,16 @@ Uses anonymous pipes to connect to remote-debugging-pipes to control the browser
 
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
     FunctionsToExport = @(
-        'Start-CdpServer',
-        'Stop-CdpServer',
-        'Get-CdpFrame',
-        'New-CdpPage',
-        'Invoke-CdpPageNavigate',
-        'Invoke-CdpInputClickElement',
-        'Invoke-CdpInputSendKeys',
-        'Invoke-CdpRuntimeEvaluate',
-        'Invoke-CdpRuntimeAddBinding',
+        'Start-CdpServer'
+        'Stop-CdpServer'
+        'Get-CdpFrame'
+        'New-CdpPage'
+        'Invoke-CdpPageNavigate'
+        'Invoke-CdpInputClickElement'
+        'Invoke-CdpInputSendKeys'
+        'Invoke-CdpRuntimeEvaluate'
+        'Invoke-CdpRuntimeAddBinding'
+        'Test-CdpSelector'
         'Wait-CdpPageLifecycleEvent'
         'ConvertTo-Delegate'
     )
