@@ -1,14 +1,14 @@
 function Wait-CdpPageLifecycleEvent {
     <#
-		.SYNOPSIS
-		Waits for provided LifecycleEvents.
-		.PARAMETER InputObject
-		The CdpPage or [pscustomobject]@{CdpPage; CdpFrame} from Get-CdpFrame.
-		.PARAMETER Events
-		The LifecycleEvent to wait for.
-		.PARAMETER Timeout
-		Max time to wait(ms) before giving up.
-	#>
+        .SYNOPSIS
+        Waits for provided LifecycleEvents.
+        .PARAMETER InputObject
+        The CdpPage or [pscustomobject]@{CdpPage; CdpFrame} from Get-CdpFrame.
+        .PARAMETER Events
+        The LifecycleEvent to wait for.
+        .PARAMETER Timeout
+        Max time to wait(ms) before giving up.
+    #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory, ValueFromPipeline)]

@@ -1,9 +1,9 @@
 function Test-CdpSelector {
     <#
-		.SYNOPSIS
-		Returns nodes for exploring if selectors are found.
-		.PARAMETER FilterScript
-		The scriptblock that will filter find valid nodes.
+        .SYNOPSIS
+        Returns nodes for exploring if selectors are found.
+        .PARAMETER FilterScript
+        The scriptblock that will filter find valid nodes.
         Valid properties are:
 
         NodeId
@@ -45,15 +45,15 @@ function Test-CdpSelector {
             $_.NodeValue -eq 'submit'
         }
 
-		.PARAMETER Index
-		The nth number of the Nodes found by FilterScript
+        .PARAMETER Index
+        The nth number of the Nodes found by FilterScript
 
         .PARAMETER All
         Returns all found nodes for viewing
 
         .PARAMETER EnableDomEvents
         Keeps DOM events active
-	#>
+    #>
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]

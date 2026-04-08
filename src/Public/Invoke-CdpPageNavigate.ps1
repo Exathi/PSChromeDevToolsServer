@@ -1,9 +1,9 @@
 function Invoke-CdpPageNavigate {
     <#
-		.SYNOPSIS
-		Navigates and automatically waits for the page to load with Page.lifecycleEvent.load and FrameStoppedLoading
-		Also waits for frames to load if they are present
-	#>
+        .SYNOPSIS
+        Navigates and automatically waits for the page to load with Page.lifecycleEvent.load and FrameStoppedLoading
+        Also waits for frames to load if they are present
+    #>
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]

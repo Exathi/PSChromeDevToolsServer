@@ -175,8 +175,8 @@ function Get-Target.setAutoAttach {
                     exclude = $true
                 },
                 # @{
-                # 	type = 'other'
-                # 	exclude = $true
+                #     type = 'other'
+                #     exclude = $true
                 # },
                 @{
                     type = 'background_page'
@@ -213,8 +213,8 @@ function Get-Target.setDiscoverTargets {
                     exclude = $true
                 },
                 # @{
-                # 	type = 'other'
-                # 	exclude = $true
+                #     type = 'other'
+                #     exclude = $true
                 # },
                 @{
                     type = 'background_page'

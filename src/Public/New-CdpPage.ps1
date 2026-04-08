@@ -1,10 +1,10 @@
 function New-CdpPage {
     <#
-		.SYNOPSIS
-		Creates a new tab target and enables Page events, PageLifeCycle events, and Runtime.
+        .SYNOPSIS
+        Creates a new tab target and enables Page events, PageLifeCycle events, and Runtime.
         .PARAMETER NewWindow
         Creates a new browser context and tab.
-	#>
+    #>
     [CmdletBinding()]
     param (
         [Parameter(ValueFromPipeline, Position = 0)]

@@ -1,16 +1,16 @@
 function Invoke-CdpInputSendKeys {
     <#
-		.SYNOPSIS
-		Sends keys to a session
-		.PARAMETER Keys
-		String to send
-		.EXAMPLE
-		Invoke-CdpInputSendKeys -CdpPage $CdpPage -Keys 'Hello World'
-		.PARAMETER BringToFront
-		Attemps to brings page to front once before sending keys.
-		.PARAMETER Delay
-		Time in ms between sending each key command.
-	#>
+        .SYNOPSIS
+        Sends keys to a session
+        .PARAMETER Keys
+        String to send
+        .EXAMPLE
+        Invoke-CdpInputSendKeys -CdpPage $CdpPage -Keys 'Hello World'
+        .PARAMETER BringToFront
+        Attemps to brings page to front once before sending keys.
+        .PARAMETER Delay
+        Time in ms between sending each key command.
+    #>
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]

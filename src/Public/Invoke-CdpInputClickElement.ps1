@@ -1,9 +1,9 @@
 function Invoke-CdpInputClickElement {
     <#
-		.SYNOPSIS
-		Finds and clicks with element in the center of the box. Clicks from the top left of the element when $TopLeft is switched on.
-		.PARAMETER FilterScript
-		The scriptblock that will filter find valid nodes.
+        .SYNOPSIS
+        Finds and clicks with element in the center of the box. Clicks from the top left of the element when $TopLeft is switched on.
+        .PARAMETER FilterScript
+        The scriptblock that will filter find valid nodes.
         Valid properties are:
 
         NodeId
@@ -45,21 +45,21 @@ function Invoke-CdpInputClickElement {
             $_.NodeValue -eq 'submit'
         }
 
-		.PARAMETER Index
-		The nth number of the Nodes found by FilterScript
-		.PARAMETER Click
-		Number of times to left click the mouse
-		.PARAMETER OffsetX
-		Number of pixels to offset from the center of the element on the X axis
-		.PARAMETER OffsetY
-		Number of pixels to offset from the center of the element on the Y axis
-		.PARAMETER TopLeft
-		Clicks from the top left of the element instead of center. Offset x and y will be relative to this position instead.
-		.PARAMETER BringToFront
-		Attemps to brings page to front once before sending click.
-		.PARAMETER Delay
-		Time in ms between each mouse down and mouse up command.
-	#>
+        .PARAMETER Index
+        The nth number of the Nodes found by FilterScript
+        .PARAMETER Click
+        Number of times to left click the mouse
+        .PARAMETER OffsetX
+        Number of pixels to offset from the center of the element on the X axis
+        .PARAMETER OffsetY
+        Number of pixels to offset from the center of the element on the Y axis
+        .PARAMETER TopLeft
+        Clicks from the top left of the element instead of center. Offset x and y will be relative to this position instead.
+        .PARAMETER BringToFront
+        Attemps to brings page to front once before sending click.
+        .PARAMETER Delay
+        Time in ms between each mouse down and mouse up command.
+    #>
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]

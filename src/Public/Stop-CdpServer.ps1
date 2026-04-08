@@ -1,8 +1,8 @@
 function Stop-CdpServer {
     <#
-		.SYNOPSIS
-		Disposes the Server Pipes, Threads, ChromeProcess, and RunspacePool
-	#>
+        .SYNOPSIS
+        Disposes the Server Pipes, Threads, ChromeProcess, and RunspacePool
+    #>
     [CmdletBinding()]
     param (
         [Parameter(ValueFromPipeline, Position = 0)]

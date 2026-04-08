@@ -1,12 +1,12 @@
 function Get-CdpFrame {
     <#
-		.SYNOPSIS
-		Gets a frame from the Frametree if it exists.
-		.PARAMETER Url
-		The regex pattern of a url to look for
-		.PARAMETER Timeout
-		Max time to wait(ms) before giving up.
-	#>
+        .SYNOPSIS
+        Gets a frame from the Frametree if it exists.
+        .PARAMETER Url
+        The regex pattern of a url to look for
+        .PARAMETER Timeout
+        Max time to wait(ms) before giving up.
+    #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory, ValueFromPipeline)]
