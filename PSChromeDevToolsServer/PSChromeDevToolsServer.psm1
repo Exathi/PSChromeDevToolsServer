@@ -299,7 +299,6 @@ class CdpServer {
         MessageWriter = $null
         MessageWriterHandle = $null
     }
-    [System.Collections.Concurrent.ConcurrentDictionary[string, string]]$CommandHistory = [System.Collections.Concurrent.ConcurrentDictionary[string, string]]::new()
 
     CdpServer([string]$BrowserPath, [object]$StreamOutput, [string[]]$BrowserArgs, [int]$AdditionalThreads, [hashtable]$Callbacks) {
         $this.Init($BrowserPath, $StreamOutput, $BrowserArgs, $AdditionalThreads, $Callbacks, $null)
@@ -319,6 +318,7 @@ class CdpServer {
 
         $this.SharedState.CdpServer = $this
         $this.SharedState.MessageHistory = [System.Collections.Concurrent.ConcurrentDictionary[version, object]]::new()
+        $this.SharedState.CommandHistory = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
         $this.SharedState.CommandId = 0
         $this.SharedState.Targets = [System.Collections.Concurrent.ConcurrentDictionary[string, CdpPage]]::new()
         $this.SharedState.Sessions = [System.Collections.Concurrent.ConcurrentDictionary[string, CdpPage]]::new()
@@ -331,8 +331,6 @@ class CdpServer {
 
         $this.SharedState.Commands = @{
             SendRuntimeEvaluate = $this.CreateDelegate($this.SendRuntimeEvaluate)
-            GetPageBySessionId = $this.CreateDelegate($this.GetPageBySessionId)
-            GetPageByTargetId = $this.CreateDelegate($this.GetPageByTargetId)
         }
 
         $this.SharedState.EventHandler = [CdpEventHandler]::new($this.SharedState) # New-UnboundClassInstance -type ([CdpEventHandler]) -arguments @($this.SharedState)
@@ -417,6 +415,10 @@ class CdpServer {
                     do {
                         $SucessfullyAdded = if ($Response.id) {
                             $SharedState.MessageHistory.TryAdd([version]::new($LastCommandId, 0), $Response)
+                            switch ($SharedState.CommandHistory[$Response.id].WaitForResponse) {
+                                'None' { break }
+                                Default { $SharedState.CommandHistory[$Response.id].CommandReady.Set() }
+                            }
                         } else {
                             $SharedState.MessageHistory.TryAdd([version]::new($LastCommandId, $ResponseIndex++), $Response)
                         }
@@ -477,20 +479,31 @@ class CdpServer {
     [object]SendCommand([hashtable]$Command, [WaitForResponse]$WaitForResponse) {
         # This should be the only place where $this.SharedState.CommandId is incremented.
         $CommandId = $this.SharedState.AddOrUpdate('CommandId', 1, { param($Key, $OldValue) $OldValue + 1 })
-        $null = $this.CommandHistory.TryAdd($CommandId, $Command.method)
+
+        $null = $this.SharedState.CommandHistory.TryAdd($CommandId, @{
+                Method = $Command.method
+                CommandReady = [System.Threading.ManualResetEventSlim]::new($false)
+                WaitForResponse = $WaitForResponse
+            }
+        )
+
         $Command.id = $CommandId
         $JsonCommand = $Command | ConvertTo-Json -Depth 10 -Compress
         $CommandBytes = [System.Text.Encoding]::UTF8.GetBytes($JsonCommand) + 0
         $this.SharedState.IO.CommandQueue.Add($CommandBytes)
+
         $Response = switch ($WaitForResponse) {
             ([WaitForResponse]::None) {
+                $this.SharedState.CommandHistory[$CommandId].CommandReady.Dispose()
+                $this.SharedState.CommandHistory[$CommandId].CommandReady = $null
                 $null
                 break
             }
             ([WaitForResponse]::Message) {
-                $AwaitedMessage = $null
-                [System.Threading.SpinWait]::SpinUntil({ $this.SharedState.MessageHistory.TryGetValue([version]::new($CommandId, 0), [ref]$AwaitedMessage) })
-                $AwaitedMessage
+                $this.SharedState.CommandHistory[$CommandId].CommandReady.Wait()
+                $this.SharedState.MessageHistory[[version]::new($CommandId, 0)]
+                $this.SharedState.CommandHistory[$CommandId].CommandReady.Dispose()
+                $this.SharedState.CommandHistory[$CommandId].CommandReady = $null
                 break
             }
             ([WaitForResponse]::CommandId) {
@@ -500,15 +513,6 @@ class CdpServer {
         }
 
         return $Response
-    }
-
-    [CdpPage]GetPageBySessionId([string]$SessionId) {
-        $CdpPage = $null
-        if (!$this.SharedState.Sessions.TryGetValue($SessionId, [ref]$CdpPage)) {
-            $CdpPageReady = $this.SharedState.EventHandler.NewSessions.GetOrAdd($SessionId, [System.Threading.ManualResetEventSlim]::new($false))
-            $CdpPageReady.Wait()
-        }
-        return $this.SharedState.Sessions[$SessionId]
     }
 
     [CdpPage]GetPageByTargetId([string]$TargetId) {
@@ -545,9 +549,8 @@ class CdpServer {
 
     [object]ShowMessageHistory() {
         $CommandSnapshot = @{}
-        $Commands = $this.CommandHistory.GetEnumerator()
-        foreach ($Message in $Commands) {
-            $CommandSnapshot[[int]$Message.Key] = $Message.Value
+        foreach ($Message in $this.SharedState.CommandHistory.GetEnumerator()) {
+            $CommandSnapshot[[int]$Message.Key] = $Message.Value.Method
         }
         $Events = $this.SharedState.MessageHistory.GetEnumerator() | Sort-Object -Property Key | Select-Object -Property @(
             @{Name = 'id'; Expression = { $_.Value.id } },
@@ -629,24 +632,92 @@ class CdpServer {
     }
 }
 
+function ConvertTo-FlatNode {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [object]$Node,
+        [string]$TopParent = $null
+    )
+
+    foreach ($Child in $Node) {
+        # Determine the ultimate parent for this child
+        $IsHead = if ($Child.nodeName -eq 'HEAD') {
+            $Child.nodeName
+        } else {
+            $TopParent
+        }
+
+        $FlatNode = [PSCustomObject]@{
+            TopParentName = $IsHead
+            NodeId = $Child.nodeId
+            NodeType = $Child.nodeType
+            ParentId = $Child.parentId
+            BackendNodeId = $Child.backendNodeId
+            NodeValue = $Child.nodeValue
+            NodeName = $Child.nodeName
+            LocalName = $Child.localName
+            Attributes = $null
+            FrameId = $Child.frameId
+            AttributesString = $Child.attributes
+            DocumentURL = $Child.documentURL
+            # ContentFrame = $null
+        }
+
+        $FlatNode.Attributes = if ($Child.attributes) {
+            for ($i = 0; $i -lt $Child.attributes.Count; $i += 2) {
+                [pscustomobject]@{
+                    Name = $Child.attributes[$i]
+                    Value = $Child.attributes[$i + 1]
+                }
+            }
+        }
+
+        if ($Child.Children) {
+            ConvertTo-FlatNode -Node $Child.Children -TopParent $IsHead
+        }
+
+        if ($Child.contentDocument) {
+            # $FlatNode.contentFrame = ConvertTo-FlatNode -Node $Child.contentDocument -TopParent $null
+            ConvertTo-FlatNode -Node $Child.contentDocument -TopParent $null
+        }
+
+        $FlatNode
+    }
+}
+
 
 function Get-DOM.describeNode {
-    param($SessionId, $ObjectId)
+    param($SessionId)
     @{
         method = 'DOM.describeNode'
         sessionId = $SessionId
-        params = @{
-            objectId = "$ObjectId"
-        }
+        params = @{}
+    }
+}
+function Get-DOM.disable {
+    param($SessionId)
+    @{
+        method = 'DOM.disable'
+        sessionId = $SessionId
     }
 }
 function Get-DOM.getBoxModel {
-    param($SessionId, $ObjectId)
+    param($SessionId)
     @{
         method = 'DOM.getBoxModel'
         sessionId = $SessionId
+        params = @{}
+    }
+}
+function Get-DOM.getDocument {
+    param($SessionId)
+    @{
+        method = 'DOM.getDocument'
+        sessionId = $SessionId
         params = @{
-            objectId = "$ObjectId"
+            depth = -1
+            pierce = $true
         }
     }
 }
@@ -924,13 +995,13 @@ function Get-CdpFrame {
         $Start = Get-Date
         do {
             $Command = Get-Page.getFrameTree $CdpPage.TargetInfo.SessionId
-            $Response = $CdpPage.CdpServer.SendCommand($Command, 1)
+            $Response = $CdpPage.CdpServer.SendCommand($Command, [WaitForResponse]::Message)
             $FramesTree = Get-CdpFrameTree $Response.result.frameTree
             $Match = $FramesTree.url | Select-String -Pattern $Url
             $MatchedFrame = $FramesTree | Where-Object { $_.url -eq $Match.Line }
             $CdpFrame = $CdpPage.Frames.Values | Where-Object { $_.FrameId -eq $MatchedFrame.id }
             if ($CdpFrame) { break }
-            Start-Sleep 0
+            Start-Sleep -Milliseconds 1
         } while (($Start.AddMilliseconds($Timeout) - (Get-Date)).Milliseconds -gt 0)
 
         if (!$CdpFrame) { throw ('No frame found using: {0}' -f $Url) }
@@ -946,10 +1017,51 @@ function Invoke-CdpInputClickElement {
     <#
 		.SYNOPSIS
 		Finds and clicks with element in the center of the box. Clicks from the top left of the element when $TopLeft is switched on.
-		.PARAMETER Selector
-		Javascript that returns ONE node object
-		For example:
-		document.querySelectorAll('[name=q]')[0]
+		.PARAMETER FilterScript
+		The scriptblock that will filter find valid nodes.
+        Valid properties are:
+
+        NodeId
+        NodeType
+        ParentId
+        BackendNodeId
+        NodeValue*
+        NodeName*
+        LocalName
+        Attributes*
+        FrameId
+        AttributesString
+        DocumentURL
+
+        *The most common selectors
+        NodeValue = any text on the page
+        NodeName = element tag name
+        Attributes = attributes for the tag such as:
+            Name = id, Value = theId
+            Name = autofocus
+
+        .EXAMPLE
+        $FilterScript = {
+            $_.NodeName -eq '#text' -and
+            $_.NodeValue -eq 'Woo woo'
+        }
+
+        $FilterScript = {
+            $_.NodeName -eq 'a'
+        }
+        $Index = 5
+
+        $FilterScript = {
+            $_.NodeName -eq 'button'
+        }
+        $Index = 0
+
+        $FilterScript = {
+            $_.NodeValue -eq 'submit'
+        }
+
+		.PARAMETER Index
+		The nth number of the Nodes found by FilterScript
 		.PARAMETER Click
 		Number of times to left click the mouse
 		.PARAMETER OffsetX
@@ -968,14 +1080,11 @@ function Invoke-CdpInputClickElement {
         [Parameter(Mandatory, ValueFromPipeline)]
         [CdpPage]$CdpPage,
         [Parameter(Mandatory)]
-        [string]$Selector,
-        [Parameter(ParameterSetName = 'Click')]
+        [scriptblock]$FilterScript,
+        [int]$Index = 0,
         [int]$Click = 0,
-        [Parameter(ParameterSetName = 'Click')]
         [int]$OffsetX = 0,
-        [Parameter(ParameterSetName = 'Click')]
         [int]$OffsetY = 0,
-        [Parameter(ParameterSetName = 'Click')]
         [switch]$TopLeft,
         [switch]$BringToFront,
         [ValidateRange(0, [int]::MaxValue)]
@@ -986,28 +1095,23 @@ function Invoke-CdpInputClickElement {
         $CdpServer = $CdpPage.CdpServer
         $SessionId = $CdpPage.TargetInfo['SessionId']
 
-        $Command = Get-Runtime.evaluate $SessionId $Selector
-        $Command.params.uniqueContextId = "$($CdpPage.PageInfo['RuntimeUniqueId'])"
-        $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
-
-        $CdpPage.PageInfo['ObjectId'] = $Response.result.result.objectId
+        $CdpPage.PageInfo['Node'] = Test-CdpSelector -CdpPage $CdpPage -FilterScript $FilterScript -Index $Index -EnableDomEvents
+        if ($CdpPage.PageInfo['Node'].nodeType -ne 1 -and $CdpPage.PageInfo['Node'].nodeType -ne 3) { throw ('Node is not an element or text. {0}' -f $CdpPage.PageInfo['Node'].nodeType) }
 
         if ($Click -le 0) { return $_ }
 
-        $Command = Get-DOM.describeNode $SessionId $CdpPage.PageInfo.ObjectId
-        $Command.params.objectId = $CdpPage.PageInfo['ObjectId']
-        $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
-
-        if ($Response.error) {
-            throw ('Error describing node: {0}' -f $Response.error.message)
+        $Command = Get-DOM.getBoxModel $SessionId
+        $Command.params = @{
+            nodeId = $CdpPage.PageInfo['Node'].nodeId
         }
-
-        $CdpPage.PageInfo['Node'] = $Response.result.node
-        if ($Response.result.node.nodeType -ne 1) { throw ('Node is not an element. {0}' -f $Response.result.node) }
-
-        $Command = Get-DOM.getBoxModel $SessionId $CdpPage.PageInfo['ObjectId']
-        $Command.params.objectId = $CdpPage.PageInfo['ObjectId']
         $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+
+        if ($Response.error) { throw 'Could not get box model. {0}' -f "$($Response.error)" }
+
+        # Disable dom events now that we don't need nodes anymore.
+        $Command = Get-DOM.disable $CdpPage.TargetInfo.SessionId
+        $CdpServer.SendCommand($Command)
+
         $CdpPage.PageInfo['BoxModel'] = $Response.result.model
 
         if ($TopLeft) {
@@ -1026,18 +1130,19 @@ function Invoke-CdpInputClickElement {
             $null = $CdpServer.SendCommand($CommandFront, [WaitForResponse]::Message)
         }
 
-        $CommandIdWaiter = @(
+        $CommandIds = @(
             $CdpServer.SendCommand($Command, [WaitForResponse]::CommandId)
             $Command.params.type = 'mouseReleased'
-            Start-Sleep -Milliseconds $Delay # if we send click too fast it will fail to register.
+            Start-Sleep -Milliseconds $Delay # if we send click too fast it can fail to register.
             $CdpServer.SendCommand($Command, [WaitForResponse]::CommandId)
         )
 
-        [System.Threading.SpinWait]::SpinUntil({
-                $CommandResponse = $CommandIdWaiter.Where({ $CdpServer.SharedState.MessageHistory.ContainsKey([version]::new($_, 0)) })
-                $CommandResponse.Count -eq 2
-            }
-        )
+        foreach ($Id in $CommandIds) {
+            $History = $CdpServer.SharedState.CommandHistory[$Id]
+            $History.CommandReady.Wait()
+            $History.CommandReady.Dispose()
+            $History.CommandReady = $null
+        }
 
         $_
     }
@@ -1077,19 +1182,18 @@ function Invoke-CdpInputSendKeys {
             $null = $CdpServer.SendCommand($CommandFront, [WaitForResponse]::Message)
         }
 
-        $CommandIdWaiter = $Keys.ToCharArray().ForEach({
-                $Command.params.text = $_
-                Start-Sleep -Milliseconds $Delay # if we send keys too fast it will fail to register.
-                $CdpServer.SendCommand($Command, [WaitForResponse]::CommandId)
-            }
-        )
+        $CommandIds = foreach ($Char in $Keys[0..($Keys.Length - 1)]) {
+            $Command.params.text = $Char
+            Start-Sleep -Milliseconds $Delay # if we send keys too fast it can fail to register.
+            $CdpServer.SendCommand($Command, [WaitForResponse]::CommandId)
+        }
 
-        $KeyCount = $Keys.ToCharArray().Count
-        [System.Threading.SpinWait]::SpinUntil({
-                $CommandResponse = $CommandIdWaiter.Where({ $CdpServer.SharedState.MessageHistory.ContainsKey([version]::new($_, 0)) })
-                $CommandResponse.Count -eq $KeyCount
-            }
-        )
+        foreach ($Id in $CommandIds) {
+            $History = $CdpServer.SharedState.CommandHistory[$Id]
+            $History.CommandReady.Wait()
+            $History.CommandReady.Dispose()
+            $History.CommandReady = $null
+        }
 
         $_
     }
@@ -1373,6 +1477,92 @@ function Stop-CdpServer {
     process {
         if ($CdpPage) { $CdpServer = $CdpPage.CdpServer }
         $CdpServer.Stop()
+    }
+}
+
+function Test-CdpSelector {
+    <#
+		.SYNOPSIS
+		Returns nodes for exploring if selectors are found.
+		.PARAMETER FilterScript
+		The scriptblock that will filter find valid nodes.
+        Valid properties are:
+
+        NodeId
+        NodeType
+        ParentId
+        BackendNodeId
+        NodeValue*
+        NodeName*
+        LocalName
+        Attributes*
+        FrameId
+        AttributesString
+        DocumentURL
+
+        *The most common selectors
+        NodeValue = any text on the page
+        NodeName = element tag name
+        Attributes = attributes for the tag such as:
+            Name = id, Value = theId
+            Name = autofocus
+
+        .EXAMPLE
+        $FilterScript = {
+            $_.NodeName -eq '#text' -and
+            $_.NodeValue -eq 'Woo woo'
+        }
+
+        $FilterScript = {
+            $_.NodeName -eq 'a'
+        }
+        $Index = 5
+
+        $FilterScript = {
+            $_.NodeName -eq 'button'
+        }
+        $Index = 0
+
+        $FilterScript = {
+            $_.NodeValue -eq 'submit'
+        }
+
+		.PARAMETER Index
+		The nth number of the Nodes found by FilterScript
+
+        .PARAMETER All
+        Returns all found nodes for viewing
+
+        .PARAMETER EnableDomEvents
+        Keeps DOM events active
+	#>
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [object]$CdpPage,
+        [scriptblock]$FilterScript,
+        [int]$Index = 0,
+        [switch]$All,
+        [switch]$EnableDomEvents
+    )
+
+    process {
+        $Command = Get-DOM.getDocument $CdpPage.TargetInfo.SessionId
+        $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+
+        if (!$EnableDomEvents) {
+            $Command = Get-DOM.disable $CdpPage.TargetInfo.SessionId
+            $CdpServer.SendCommand($Command)
+        }
+
+        $Root = $Response.result.root
+        $Document = ConvertTo-FlatNode -Node $Root
+
+        $Nodes = $Document | Where-Object { $_.TopParentName -ne 'HEAD' } | Where-Object -FilterScript $FilterScript
+
+        if ($Nodes -and $All) { $Nodes }
+        elseif ($Nodes) { $Nodes[$Index] }
+        else { throw ('no node found with FilterScript: {0}' -f $FilterScript) }
     }
 }
 
