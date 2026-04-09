@@ -102,10 +102,9 @@ class CdpServer {
                     if ($HasCompletedMessages) {
                         $RawResponse = $StringBuilder.ToString()
                         $SplitResponse = @(($RawResponse -split $NullTerminatedString).Where({ "`0" -ne $_ }) | ConvertFrom-Json)
-                        $SplitResponse.ForEach({
-                                $SharedState.IO.UnprocessedResponses.Add($_)
-                            }
-                        )
+                        foreach ($Response in $SplitResponse) {
+                            $SharedState.IO.UnprocessedResponses.Add($Response)
+                        }
                         $StringBuilder.Clear()
                     }
                 }
