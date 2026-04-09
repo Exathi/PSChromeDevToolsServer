@@ -259,10 +259,6 @@ class CdpServer {
 
         $Command = Get-Target.setAutoAttach
         $this.SendCommand($Command)
-
-        $CdpPage = $this.GetFirstAvailableCdpPage()
-
-        $this.SetupNewPage($CdpPage)
     }
 
     [object]ShowMessageHistory() {
@@ -279,24 +275,6 @@ class CdpServer {
             @{Name = 'result'; Expression = { $_.Value.result } }
         )
         return $Events
-    }
-
-    [CdpPage]GetFirstAvailableCdpPage() {
-        $AvailableTargetId = $null
-        do {
-            $TargetCreatedEvents = $this.SharedState.MessageHistory.GetEnumerator() | Sort-Object -Property Key | Where-Object {
-                $_.Value.method -eq 'Target.targetCreated'
-            }
-
-            $AvailableTargetId = foreach ($TargetId in $TargetCreatedEvents.Value.params.targetInfo.targetId) {
-                $Target = $this.SharedState.Targets.GetEnumerator() | Where-Object { $_.Value.TargetId -eq $TargetId }
-                if ($Target) {
-                    $TargetId
-                    break
-                }
-            }
-        } while (!$AvailableTargetId)
-        return $this.SharedState.Targets[$AvailableTargetId]
     }
 
     [void]WaitForPageLoad([CdpPage]$CdpPage) {

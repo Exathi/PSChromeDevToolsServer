@@ -84,5 +84,16 @@ function Start-CdpServer {
         $CdpServer.EnableDefaultEvents()
     }
 
-    $CdpServer.GetFirstAvailableCdpPage()
+    # Should only be used at startup since there is only one page
+    do {
+        foreach ($Target in $CdpServer.SharedState.Targets.GetEnumerator()) {
+            break
+        }
+        Start-Sleep -Milliseconds 1
+    } while (!$Target)
+    $CdpPage = $CdpServer.SharedState.Targets[$Target.Value.TargetId]
+
+    $CdpServer.SetupNewPage($CdpPage)
+
+    $CdpPage
 }
