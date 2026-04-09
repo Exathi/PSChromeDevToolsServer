@@ -57,6 +57,7 @@ awaitMultiplePromises();
         $CdpServer = $CdpPage.CdpServer
         $SessionId = $CdpPage.TargetInfo['SessionId']
         $Command = Get-Runtime.evaluate $SessionId $Expression
+        $CdpPage.RuntimeReady.Wait()
         $Command.params.uniqueContextId = "$($CdpPage.PageInfo['RuntimeUniqueId'])"
         if ($AwaitPromise) { $Command.params.awaitPromise = $true }
         $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
