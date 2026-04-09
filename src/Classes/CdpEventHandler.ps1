@@ -26,8 +26,6 @@ class CdpEventHandler {
     }
 
     [void]ProcessEvent($Response) {
-        if ($null -eq $Response.method) { return }
-
         $Handler = $this.EventHandlers[$Response.method]
         if ($Handler) {
             $Handler.Invoke($Response)

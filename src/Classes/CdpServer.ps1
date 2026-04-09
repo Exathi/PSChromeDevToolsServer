@@ -35,7 +35,7 @@ class CdpServer {
         }
 
         $this.SharedState.CdpServer = $this
-        $this.SharedState.MessageHistory = [System.Collections.Concurrent.ConcurrentDictionary[version, object]]::new()
+        $this.SharedState.MessageHistory = [System.Collections.Concurrent.ConcurrentQueue[object]]::new()
         $this.SharedState.CommandHistory = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
         $this.SharedState.CommandId = 0
         $this.SharedState.Targets = [System.Collections.Concurrent.ConcurrentDictionary[string, CdpPage]]::new()
@@ -121,31 +121,21 @@ class CdpServer {
                 if ($SharedState.DebugPreference) { $DebugPreference = $SharedState.DebugPreference }
                 if ($SharedState.VerbosePreference) { $VerbosePreference = $SharedState.VerbosePreference }
 
-                $ResponseIndex = 1
-
                 foreach ($Response in $SharedState.IO.UnprocessedResponses.GetConsumingEnumerable()) {
-                    $LastCommandId = if ($Response.id) {
-                        $Response.id
+                    if ($Response.id) {
+                        switch ($SharedState.CommandHistory[$Response.id].WaitForResponse) {
+                            'None' { break }
+                            Default { $SharedState.CommandHistory[$Response.id].CommandReady.Set() }
+                        }
+                        $SharedState.CommandHistory[$Response.id].Response = $Response
                     } else {
-                        $SharedState.CommandId
+                        $SharedState.EventHandler.ProcessEvent($Response)
                     }
 
-                    do {
-                        $SucessfullyAdded = if ($Response.id) {
-                            $SharedState.MessageHistory.TryAdd([version]::new($LastCommandId, 0), $Response)
-                            switch ($SharedState.CommandHistory[$Response.id].WaitForResponse) {
-                                'None' { break }
-                                Default { $SharedState.CommandHistory[$Response.id].CommandReady.Set() }
-                            }
-                        } else {
-                            $SharedState.MessageHistory.TryAdd([version]::new($LastCommandId, $ResponseIndex++), $Response)
-                        }
-                    } while (!$SucessfullyAdded)
-
-                    # $Start = Get-Date
-                    $SharedState.EventHandler.ProcessEvent($Response)
-                    # $End = Get-Date
-                    # Write-Debug ('{0} {1} Processing Time: {2} ms' -f $Response.id, $Response.method, ($End - $Start).TotalMilliseconds)
+                    while ($SharedState.MessageHistory.Count -gt 300) {
+                        $SharedState.MessageHistory.TryDequeue([ref]$null)
+                    }
+                    $SharedState.MessageHistory.Enqueue($Response)
                 }
             }
         )
@@ -202,6 +192,7 @@ class CdpServer {
                 Method = $Command.method
                 CommandReady = [System.Threading.ManualResetEventSlim]::new($false)
                 WaitForResponse = $WaitForResponse
+                Response = $null
             }
         )
 
@@ -219,7 +210,7 @@ class CdpServer {
             }
             ([WaitForResponse]::Message) {
                 $this.SharedState.CommandHistory[$CommandId].CommandReady.Wait()
-                $this.SharedState.MessageHistory[[version]::new($CommandId, 0)]
+                $this.SharedState.CommandHistory[$CommandId].Response
                 $this.SharedState.CommandHistory[$CommandId].CommandReady.Dispose()
                 $this.SharedState.CommandHistory[$CommandId].CommandReady = $null
                 break
@@ -262,17 +253,13 @@ class CdpServer {
     }
 
     [object]ShowMessageHistory() {
-        $CommandSnapshot = @{}
-        foreach ($Message in $this.SharedState.CommandHistory.GetEnumerator()) {
-            $CommandSnapshot[[int]$Message.Key] = $Message.Value.Method
-        }
-        $Events = $this.SharedState.MessageHistory.GetEnumerator() | Sort-Object -Property Key | Select-Object -Property @(
-            @{Name = 'id'; Expression = { $_.Value.id } },
-            @{Name = 'method'; Expression = { if ($_.Value.method) { $_.Value.method } else { $CommandSnapshot[[int]$_.Value.id] } } },
-            @{Name = 'error'; Expression = { $_.Value.error } },
-            @{Name = 'sessionId'; Expression = { $_.Value.sessionId } },
-            @{Name = 'params'; Expression = { $_.Value.params } },
-            @{Name = 'result'; Expression = { $_.Value.result } }
+        $Events = $this.SharedState.MessageHistory.GetEnumerator() | Select-Object -Property @(
+            @{Name = 'id'; Expression = { $_.id } },
+            @{Name = 'method'; Expression = { if ($_.method) { $_.method } else { $this.SharedState.CommandHistory[$_.id].Method } } },
+            @{Name = 'error'; Expression = { $_.error } },
+            @{Name = 'sessionId'; Expression = { $_.sessionId } },
+            @{Name = 'params'; Expression = { $_.params } },
+            @{Name = 'result'; Expression = { $_.result } }
         )
         return $Events
     }
