@@ -102,7 +102,6 @@ class CdpPage {
 class CdpEventHandler {
     [System.Collections.Concurrent.ConcurrentDictionary[string, object]]$SharedState
     [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]$NewTargets = [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]::new()
-    [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]$NewSessions = [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]::new()
     [hashtable]$EventHandlers
 
     CdpEventHandler([System.Collections.Concurrent.ConcurrentDictionary[string, object]]$SharedState) {
@@ -127,14 +126,11 @@ class CdpEventHandler {
     }
 
     [void]ProcessEvent($Response) {
-        if ($null -eq $Response.method) { return }
         $Handler = $this.EventHandlers[$Response.method]
         if ($Handler) {
             $Handler.Invoke($Response)
         }
-        # else {
-        # 	Write-Debug ('Unprocessed Event: ({0})' -f $Response.method)
-        # }
+
         $Callback = $this.SharedState.Callbacks["On$($Response.method.Split('.')[1])".ToUpper()]
         if ($Callback) {
             $Callback.Invoke($Response)
@@ -204,11 +200,14 @@ class CdpEventHandler {
     }
 
     hidden [void]TargetDestroyed($Response) {
-        $CdpPage = $this.GetPageByTargetId($Response.params.targetId)
+        $TargetId = $Response.params.targetId
+        $CdpPage = $this.GetPageByTargetId($TargetId)
         if ($CdpPage) {
-            $null = $this.SharedState.Targets.TryRemove($CdpPage.TargetId, [ref]$null)
+            $null = $this.SharedState.Targets.TryRemove($TargetId, [ref]$null)
             $CdpPage.Dispose()
         }
+        $this.NewTargets[$TargetId].Dispose()
+        $this.NewTargets[$TargetId] = $null # Don't remove. Set to null instead so if there are lingering threads that are looking for it, they won't block.
     }
 
     hidden [void]TargetInfoChanged($Response) {
@@ -223,12 +222,10 @@ class CdpEventHandler {
 
     hidden [void]AttachedToTarget($Response) {
         $SessionId = $Response.params.sessionId
-        $CdpPageReady = $this.NewSessions.GetOrAdd($SessionId, [System.Threading.ManualResetEventSlim]::new($false))
         $CdpPage = $this.GetPageByTargetId($Response.params.targetInfo.targetId)
         $CdpPage.TargetInfo['SessionId'] = $SessionId
         $this.SharedState.Sessions[$SessionId] = $CdpPage
         $CdpPage.SessionReady.Set()
-        $CdpPageReady.Set()
     }
 
     hidden [void]DetachedFromTarget($Response) {
@@ -262,11 +259,6 @@ class CdpEventHandler {
     }
 
     [CdpPage]GetPageBySessionId([string]$SessionId) {
-        $CdpPage = $null
-        if (!$this.SharedState.Sessions.TryGetValue($SessionId, [ref]$CdpPage)) {
-            $CdpPageReady = $this.NewSessions.GetOrAdd($SessionId, [System.Threading.ManualResetEventSlim]::new($false))
-            $CdpPageReady.Wait()
-        }
         return $this.SharedState.Sessions[$SessionId]
     }
 
@@ -294,8 +286,8 @@ class CdpServer {
     [pscustomobject]$Threads = @{
         MessageReader = $null
         MessageReaderHandle = $null
-        MessageProcessor = $null
-        MessageProcessorHandle = $null
+        MessageProcessor = [System.Collections.Generic.List[Powershell]]::new()
+        MessageProcessorHandle = [System.Collections.Generic.List[IAsyncResult]]::new()
         MessageWriter = $null
         MessageWriterHandle = $null
     }
@@ -317,7 +309,7 @@ class CdpServer {
         }
 
         $this.SharedState.CdpServer = $this
-        $this.SharedState.MessageHistory = [System.Collections.Concurrent.ConcurrentDictionary[version, object]]::new()
+        $this.SharedState.MessageHistory = [System.Collections.Concurrent.ConcurrentQueue[object]]::new()
         $this.SharedState.CommandHistory = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
         $this.SharedState.CommandId = 0
         $this.SharedState.Targets = [System.Collections.Concurrent.ConcurrentDictionary[string, CdpPage]]::new()
@@ -365,6 +357,8 @@ class CdpServer {
     }
 
     [void]StartMessageReader() {
+        if ($this.RunspacePool.GetAvailableRunspaces() -eq 0) { throw 'no runspaces available in runspacepool' }
+
         $this.Threads.MessageReader = [powershell]::Create()
         $this.Threads.MessageReader.RunspacePool = $this.RunspacePool
         $null = $this.Threads.MessageReader.AddScript({
@@ -384,10 +378,9 @@ class CdpServer {
                     if ($HasCompletedMessages) {
                         $RawResponse = $StringBuilder.ToString()
                         $SplitResponse = @(($RawResponse -split $NullTerminatedString).Where({ "`0" -ne $_ }) | ConvertFrom-Json)
-                        $SplitResponse.ForEach({
-                                $SharedState.IO.UnprocessedResponses.Add($_)
-                            }
-                        )
+                        foreach ($Response in $SplitResponse) {
+                            $SharedState.IO.UnprocessedResponses.Add($Response)
+                        }
                         $StringBuilder.Clear()
                     }
                 }
@@ -397,44 +390,39 @@ class CdpServer {
     }
 
     [void]StartMessageProcessor() {
-        $this.Threads.MessageProcessor = [powershell]::Create()
-        $this.Threads.MessageProcessor.RunspacePool = $this.RunspacePool
-        $null = $this.Threads.MessageProcessor.AddScript({
+        if ($this.RunspacePool.GetAvailableRunspaces() -eq 0) { throw 'no runspaces available in runspacepool' }
+
+        $Powershell = [powershell]::Create()
+        $this.Threads.MessageProcessor.Add($Powershell)
+        $Powershell.RunspacePool = $this.RunspacePool
+        $null = $Powershell.AddScript({
                 if ($SharedState.DebugPreference) { $DebugPreference = $SharedState.DebugPreference }
                 if ($SharedState.VerbosePreference) { $VerbosePreference = $SharedState.VerbosePreference }
 
-                $ResponseIndex = 1
-
                 foreach ($Response in $SharedState.IO.UnprocessedResponses.GetConsumingEnumerable()) {
-                    $LastCommandId = if ($Response.id) {
-                        $Response.id
+                    if ($Response.id) {
+                        switch ($SharedState.CommandHistory[$Response.id].WaitForResponse) {
+                            'None' { break }
+                            Default { $SharedState.CommandHistory[$Response.id].CommandReady.Set() }
+                        }
+                        $SharedState.CommandHistory[$Response.id].Response = $Response
                     } else {
-                        $SharedState.CommandId
+                        $SharedState.EventHandler.ProcessEvent($Response)
                     }
 
-                    do {
-                        $SucessfullyAdded = if ($Response.id) {
-                            $SharedState.MessageHistory.TryAdd([version]::new($LastCommandId, 0), $Response)
-                            switch ($SharedState.CommandHistory[$Response.id].WaitForResponse) {
-                                'None' { break }
-                                Default { $SharedState.CommandHistory[$Response.id].CommandReady.Set() }
-                            }
-                        } else {
-                            $SharedState.MessageHistory.TryAdd([version]::new($LastCommandId, $ResponseIndex++), $Response)
-                        }
-                    } while (!$SucessfullyAdded)
-
-                    # $Start = Get-Date
-                    $SharedState.EventHandler.ProcessEvent($Response)
-                    # $End = Get-Date
-                    # Write-Debug ('{0} {1} Processing Time: {2} ms' -f $Response.id, $Response.method, ($End - $Start).TotalMilliseconds)
+                    while ($SharedState.MessageHistory.Count -gt 300) {
+                        $SharedState.MessageHistory.TryDequeue([ref]$null)
+                    }
+                    $SharedState.MessageHistory.Enqueue($Response)
                 }
             }
         )
-        $this.Threads.MessageProcessorHandle = $this.Threads.MessageProcessor.BeginInvoke()
+        $this.Threads.MessageProcessorHandle.Add($Powershell.BeginInvoke())
     }
 
     [void]StartMessageWriter() {
+        if ($this.RunspacePool.GetAvailableRunspaces() -eq 0) { throw 'no runspaces available in runspacepool' }
+
         $this.Threads.MessageWriter = [powershell]::Create()
         $this.Threads.MessageWriter.RunspacePool = $this.RunspacePool
         $null = $this.Threads.MessageWriter.AddScript({
@@ -458,9 +446,10 @@ class CdpServer {
             $this.Threads.MessageReader.EndInvoke($this.Threads.MessageReaderHandle)
             $this.Threads.MessageReader.Dispose()
         }
-        if ($this.Threads.MessageProcessorHandle) {
-            $this.Threads.MessageProcessor.EndInvoke($this.Threads.MessageProcessorHandle)
-            $this.Threads.MessageProcessor.Dispose()
+        if ($this.Threads.MessageProcessorHandle.Count -gt 0) {
+            for ($i = 0; $i -lt $this.Threads.MessageProcessorHandle.Count; $i++) {
+                $this.Threads.MessageProcessor[$i].EndInvoke($this.Threads.MessageProcessorHandle[$i])
+            }
         }
         if ($this.Threads.MessageWriterHandle) {
             $this.Threads.MessageWriter.EndInvoke($this.Threads.MessageWriterHandle)
@@ -484,6 +473,7 @@ class CdpServer {
                 Method = $Command.method
                 CommandReady = [System.Threading.ManualResetEventSlim]::new($false)
                 WaitForResponse = $WaitForResponse
+                Response = $null
             }
         )
 
@@ -501,7 +491,7 @@ class CdpServer {
             }
             ([WaitForResponse]::Message) {
                 $this.SharedState.CommandHistory[$CommandId].CommandReady.Wait()
-                $this.SharedState.MessageHistory[[version]::new($CommandId, 0)]
+                $this.SharedState.CommandHistory[$CommandId].Response
                 $this.SharedState.CommandHistory[$CommandId].CommandReady.Dispose()
                 $this.SharedState.CommandHistory[$CommandId].CommandReady = $null
                 break
@@ -541,44 +531,18 @@ class CdpServer {
 
         $Command = Get-Target.setAutoAttach
         $this.SendCommand($Command)
-
-        $CdpPage = $this.GetFirstAvailableCdpPage()
-
-        $this.SetupNewPage($CdpPage)
     }
 
     [object]ShowMessageHistory() {
-        $CommandSnapshot = @{}
-        foreach ($Message in $this.SharedState.CommandHistory.GetEnumerator()) {
-            $CommandSnapshot[[int]$Message.Key] = $Message.Value.Method
-        }
-        $Events = $this.SharedState.MessageHistory.GetEnumerator() | Sort-Object -Property Key | Select-Object -Property @(
-            @{Name = 'id'; Expression = { $_.Value.id } },
-            @{Name = 'method'; Expression = { if ($_.Value.method) { $_.Value.method } else { $CommandSnapshot[[int]$_.Value.id] } } },
-            @{Name = 'error'; Expression = { $_.Value.error } },
-            @{Name = 'sessionId'; Expression = { $_.Value.sessionId } },
-            @{Name = 'params'; Expression = { $_.Value.params } },
-            @{Name = 'result'; Expression = { $_.Value.result } }
+        $Events = $this.SharedState.MessageHistory.GetEnumerator() | Select-Object -Property @(
+            @{Name = 'id'; Expression = { $_.id } },
+            @{Name = 'method'; Expression = { if ($_.method) { $_.method } else { $this.SharedState.CommandHistory[$_.id].Method } } },
+            @{Name = 'error'; Expression = { $_.error } },
+            @{Name = 'sessionId'; Expression = { $_.sessionId } },
+            @{Name = 'params'; Expression = { $_.params } },
+            @{Name = 'result'; Expression = { $_.result } }
         )
         return $Events
-    }
-
-    [CdpPage]GetFirstAvailableCdpPage() {
-        $AvailableTargetId = $null
-        do {
-            $TargetCreatedEvents = $this.SharedState.MessageHistory.GetEnumerator() | Sort-Object -Property Key | Where-Object {
-                $_.Value.method -eq 'Target.targetCreated'
-            }
-
-            $AvailableTargetId = foreach ($TargetId in $TargetCreatedEvents.Value.params.targetInfo.targetId) {
-                $Target = $this.SharedState.Targets.GetEnumerator() | Where-Object { $_.Value.TargetId -eq $TargetId }
-                if ($Target) {
-                    $TargetId
-                    break
-                }
-            }
-        } while (!$AvailableTargetId)
-        return $this.SharedState.Targets[$AvailableTargetId]
     }
 
     [void]WaitForPageLoad([CdpPage]$CdpPage) {
@@ -863,8 +827,8 @@ function Get-Target.setAutoAttach {
                     exclude = $true
                 },
                 # @{
-                # 	type = 'other'
-                # 	exclude = $true
+                #     type = 'other'
+                #     exclude = $true
                 # },
                 @{
                     type = 'background_page'
@@ -901,8 +865,8 @@ function Get-Target.setDiscoverTargets {
                     exclude = $true
                 },
                 # @{
-                # 	type = 'other'
-                # 	exclude = $true
+                #     type = 'other'
+                #     exclude = $true
                 # },
                 @{
                     type = 'background_page'
@@ -975,13 +939,13 @@ function ConvertTo-Delegate {
 
 function Get-CdpFrame {
     <#
-		.SYNOPSIS
-		Gets a frame from the Frametree if it exists.
-		.PARAMETER Url
-		The regex pattern of a url to look for
-		.PARAMETER Timeout
-		Max time to wait(ms) before giving up.
-	#>
+        .SYNOPSIS
+        Gets a frame from the Frametree if it exists.
+        .PARAMETER Url
+        The regex pattern of a url to look for
+        .PARAMETER Timeout
+        Max time to wait(ms) before giving up.
+    #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory, ValueFromPipeline)]
@@ -1013,12 +977,54 @@ function Get-CdpFrame {
     }
 }
 
+function Invoke-CdpCommand {
+    <#
+        .SYNOPSIS
+        Invokes the provided cdp command with parameters on the CdpPage.
+        All commands can be found here:
+        https://chromedevtools.github.io/devtools-protocol/tot/
+        .PARAMETER MethodName
+        The name of the cdp method ex 'Page.navigate'
+        .PARAMETER Parameters
+        A hashtable of the parameters.
+        Excluding id, method, and sessionId
+        @{
+            url = 'about:blank'
+        }
+        .EXAMPLE
+        $Response = Invoke-CdpCommand -CdpPage $CdpPage -Method 'Page.navigate' -Parameters @{url = 'about:blank' }
+    #>
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [CdpPage]$CdpPage,
+        [Parameter(Mandatory)]
+        [string]$MethodName,
+        [object]$Parameters
+    )
+
+    process {
+        $CdpServer = $CdpPage.CdpServer
+
+        $Command = @{
+            method = $MethodName
+            sessionId = $CdpPage.TargetInfo['SessionId']
+        }
+
+        if ($Parameters) {
+            $Command.params = $Parameters
+        }
+
+        $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+    }
+}
+
 function Invoke-CdpInputClickElement {
     <#
-		.SYNOPSIS
-		Finds and clicks with element in the center of the box. Clicks from the top left of the element when $TopLeft is switched on.
-		.PARAMETER FilterScript
-		The scriptblock that will filter find valid nodes.
+        .SYNOPSIS
+        Finds and clicks with element in the center of the box. Clicks from the top left of the element when $TopLeft is switched on.
+        .PARAMETER FilterScript
+        The scriptblock that will filter find valid nodes.
         Valid properties are:
 
         NodeId
@@ -1060,21 +1066,21 @@ function Invoke-CdpInputClickElement {
             $_.NodeValue -eq 'submit'
         }
 
-		.PARAMETER Index
-		The nth number of the Nodes found by FilterScript
-		.PARAMETER Click
-		Number of times to left click the mouse
-		.PARAMETER OffsetX
-		Number of pixels to offset from the center of the element on the X axis
-		.PARAMETER OffsetY
-		Number of pixels to offset from the center of the element on the Y axis
-		.PARAMETER TopLeft
-		Clicks from the top left of the element instead of center. Offset x and y will be relative to this position instead.
-		.PARAMETER BringToFront
-		Attemps to brings page to front once before sending click.
-		.PARAMETER Delay
-		Time in ms between each mouse down and mouse up command.
-	#>
+        .PARAMETER Index
+        The nth number of the Nodes found by FilterScript
+        .PARAMETER Click
+        Number of times to left click the mouse
+        .PARAMETER OffsetX
+        Number of pixels to offset from the center of the element on the X axis
+        .PARAMETER OffsetY
+        Number of pixels to offset from the center of the element on the Y axis
+        .PARAMETER TopLeft
+        Clicks from the top left of the element instead of center. Offset x and y will be relative to this position instead.
+        .PARAMETER BringToFront
+        Attemps to brings page to front once before sending click.
+        .PARAMETER Delay
+        Time in ms between each mouse down and mouse up command.
+    #>
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
@@ -1150,17 +1156,17 @@ function Invoke-CdpInputClickElement {
 
 function Invoke-CdpInputSendKeys {
     <#
-		.SYNOPSIS
-		Sends keys to a session
-		.PARAMETER Keys
-		String to send
-		.EXAMPLE
-		Invoke-CdpInputSendKeys -CdpPage $CdpPage -Keys 'Hello World'
-		.PARAMETER BringToFront
-		Attemps to brings page to front once before sending keys.
-		.PARAMETER Delay
-		Time in ms between sending each key command.
-	#>
+        .SYNOPSIS
+        Sends keys to a session
+        .PARAMETER Keys
+        String to send
+        .EXAMPLE
+        Invoke-CdpInputSendKeys -CdpPage $CdpPage -Keys 'Hello World'
+        .PARAMETER BringToFront
+        Attemps to brings page to front once before sending keys.
+        .PARAMETER Delay
+        Time in ms between sending each key command.
+    #>
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
@@ -1201,10 +1207,10 @@ function Invoke-CdpInputSendKeys {
 
 function Invoke-CdpPageNavigate {
     <#
-		.SYNOPSIS
-		Navigates and automatically waits for the page to load with Page.lifecycleEvent.load and FrameStoppedLoading
-		Also waits for frames to load if they are present
-	#>
+        .SYNOPSIS
+        Navigates and automatically waits for the page to load with Page.lifecycleEvent.load and FrameStoppedLoading
+        Also waits for frames to load if they are present
+    #>
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
@@ -1235,11 +1241,11 @@ function Invoke-CdpPageNavigate {
 
 function Invoke-CdpRuntimeAddBinding {
     <#
-		.SYNOPSIS
-		Adds a binding object to the browser
-		.PARAMETER Name
-		Name of the object to use in javascript - window.Name(json);
-	#>
+        .SYNOPSIS
+        Adds a binding object to the browser
+        .PARAMETER Name
+        Name of the object to use in javascript - window.Name(json);
+    #>
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
@@ -1260,50 +1266,50 @@ function Invoke-CdpRuntimeAddBinding {
 
 function Invoke-CdpRuntimeEvaluate {
     <#
-		.SYNOPSIS
-		Run javascript on the browser and return the responses in:
-		$CdpPage.PageInfo['EvaluateResult'] = $Response.result.result
-		$CdpPage.PageInfo['EvaluateResponse'] = $Response
-		.PARAMETER Expression
-		The javascript expression to run.
-		.PARAMETER AwaitPromise
-		Use if the Expression includes a promise that needs to be awaited.
+        .SYNOPSIS
+        Run javascript on the browser and return the responses in:
+        $CdpPage.PageInfo['EvaluateResult'] = $Response.result.result
+        $CdpPage.PageInfo['EvaluateResponse'] = $Response
+        .PARAMETER Expression
+        The javascript expression to run.
+        .PARAMETER AwaitPromise
+        Use if the Expression includes a promise that needs to be awaited.
 
-		.EXAMPLE
-		This returns after ~3-4 seconds rather than 2+2+2=6 seconds
-		If AwaitPromise was not used, Invoke-CdpRuntimeEvaluate will return immediately with $Result.result.result = javascript promise object.
+        .EXAMPLE
+        This returns after ~3-4 seconds rather than 2+2+2=6 seconds
+        If AwaitPromise was not used, Invoke-CdpRuntimeEvaluate will return immediately with $Result.result.result = javascript promise object.
 
-		$Expression = @'
+        $Expression = @'
 function timedPromise(name, delay) {
-	return new Promise(resolve => {
-		setTimeout(() => {
-			resolve(`${name} resolved`);
-		}, delay);
-	});
+    return new Promise(resolve => {
+        setTimeout(() => {
+            resolve(`${name} resolved`);
+        }, delay);
+    });
 }
 
 async function awaitMultiplePromises() {
-	const promise1 = timedPromise("Promise 1", 2000);
-	const promise2 = timedPromise("Promise 2", 2000);
-	const promise3 = timedPromise("Promise 3", 2000);
+    const promise1 = timedPromise("Promise 1", 2000);
+    const promise2 = timedPromise("Promise 2", 2000);
+    const promise3 = timedPromise("Promise 3", 2000);
 
-	const results = await Promise.all([promise1, promise2, promise3]);
+    const results = await Promise.all([promise1, promise2, promise3]);
 
-	const displayBox = document.querySelector("[id=textInput]");
-	displayBox.value = results;
+    const displayBox = document.querySelector("[id=textInput]");
+    displayBox.value = results;
 
-	return 'Promise was awaited.'
+    return 'Promise was awaited.'
 }
 
 awaitMultiplePromises();
 '@
-	$StartTime = Get-Date
-	$Result = Invoke-CdpRuntimeEvaluate -CdpPage $CdpPage -Expression $Expression -AwaitPromise
-	$EndTime = Get-Date
-	($EndTime - $StartTime).TotalSeconds
-	$Result.result.result
+    $StartTime = Get-Date
+    $Result = Invoke-CdpRuntimeEvaluate -CdpPage $CdpPage -Expression $Expression -AwaitPromise
+    $EndTime = Get-Date
+    ($EndTime - $StartTime).TotalSeconds
+    $Result.result.result
 
-	#>
+    #>
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
@@ -1317,6 +1323,7 @@ awaitMultiplePromises();
         $CdpServer = $CdpPage.CdpServer
         $SessionId = $CdpPage.TargetInfo['SessionId']
         $Command = Get-Runtime.evaluate $SessionId $Expression
+        $CdpPage.RuntimeReady.Wait()
         $Command.params.uniqueContextId = "$($CdpPage.PageInfo['RuntimeUniqueId'])"
         if ($AwaitPromise) { $Command.params.awaitPromise = $true }
         $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
@@ -1330,11 +1337,11 @@ awaitMultiplePromises();
 
 function New-CdpPage {
     <#
-		.SYNOPSIS
-		Creates a new tab target and enables Page events, PageLifeCycle events, and Runtime.
+        .SYNOPSIS
+        Creates a new tab target and enables Page events, PageLifeCycle events, and Runtime.
         .PARAMETER NewWindow
         Creates a new browser context and tab.
-	#>
+    #>
     [CmdletBinding()]
     param (
         [Parameter(ValueFromPipeline, Position = 0)]
@@ -1374,35 +1381,35 @@ function New-CdpPage {
 
 function Start-CdpServer {
     <#
-		.SYNOPSIS
-		Starts the CdpServer by launching the browser process, initializing the event handlers, and starting the message reader, processor, and writer threads.
-		.PARAMETER StartPage
-		The URL of the page to load when the browser starts.
-		.PARAMETER UserDataDir
-		The directory to use for the browser's user data profile. This should be a unique directory for each instance of the server to avoid conflicts.
-		.PARAMETER BrowserArgs
-		Commandline args for chromium.
-		Must NOT include --user-data-dir=. This is added by UserDataDir parameter.
-		Must NOT include --remote-debugging-pipe and --remote-debugging-io-pipe if using pipes.
-		.PARAMETER BrowserPath
-		The path to the browser executable to launch
-		.PARAMETER AdditionalThreads
-		Sets the max runspaces the pool can use + 3.
-		Default runspacepool uses 3min and 3max threads for MessageReader, MessageProcessor, MessageWriter
-		A number higher than 0 increases the maximum runspaces for the pool.
+        .SYNOPSIS
+        Starts the CdpServer by launching the browser process, initializing the event handlers, and starting the message reader, processor, and writer threads.
+        .PARAMETER StartPage
+        The URL of the page to load when the browser starts.
+        .PARAMETER UserDataDir
+        The directory to use for the browser's user data profile. This should be a unique directory for each instance of the server to avoid conflicts.
+        .PARAMETER BrowserArgs
+        Commandline args for chromium.
+        Must NOT include --user-data-dir=. This is added by UserDataDir parameter.
+        Must NOT include --remote-debugging-pipe and --remote-debugging-io-pipe if using pipes.
+        .PARAMETER BrowserPath
+        The path to the browser executable to launch
+        .PARAMETER AdditionalThreads
+        Sets the max runspaces the pool can use + 3.
+        Default runspacepool uses 3min and 3max threads for MessageReader, MessageProcessor, MessageWriter
+        A number higher than 0 increases the maximum runspaces for the pool.
 
-		More MessageProcessor can be started with $CdpServer.MessageProcessor()
-		These will be queued forever if the max number of runspaces are exhausted in the pool.
-		.PARAMETER Callbacks
-		A hashtable of scriptblocks to be invoked for specific events. The keys should be the event names without the domain prefix and preceeded by 'On'. For example:
-		@{
-			OnLoadEventFired = { param($Response) $Response.params }
-		}
-		.PARAMETER DisableDefaultEvents
-		This stops targets from being auto attached and auto discovered.
-		.PARAMETER StreamOutput
-		This is the (Get-Host)/$Host Console which runspacepool streams will output to.
-	#>
+        More MessageProcessor can be started with $CdpServer.MessageProcessor()
+        These will be queued forever if the max number of runspaces are exhausted in the pool.
+        .PARAMETER Callbacks
+        A hashtable of scriptblocks to be invoked for specific events. The keys should be the event names without the domain prefix and preceeded by 'On'. For example:
+        @{
+            OnLoadEventFired = { param($Response) $Response.params }
+        }
+        .PARAMETER DisableDefaultEvents
+        This stops targets from being auto attached and auto discovered.
+        .PARAMETER StreamOutput
+        This is the (Get-Host)/$Host Console which runspacepool streams will output to.
+    #>
     [CmdletBinding()]
     param (
         [Parameter(Mandatory)]
@@ -1420,7 +1427,7 @@ function Start-CdpServer {
         [Parameter(Mandatory)]
         [string]$BrowserPath,
         [ValidateScript({ $_ -ge 0 })]
-        [int]$AdditionalThreads = 0,
+        [int]$AdditionalThreads = ([int]$env:NUMBER_OF_PROCESSORS * 2),
         [hashtable]$Callbacks,
         [switch]$DisableDefaultEvents,
         [object]$StreamOutput
@@ -1458,14 +1465,25 @@ function Start-CdpServer {
         $CdpServer.EnableDefaultEvents()
     }
 
-    $CdpServer.GetFirstAvailableCdpPage()
+    # Should only be used at startup since there is only one page
+    do {
+        foreach ($Target in $CdpServer.SharedState.Targets.GetEnumerator()) {
+            break
+        }
+        Start-Sleep -Milliseconds 1
+    } while (!$Target)
+    $CdpPage = $CdpServer.SharedState.Targets[$Target.Value.TargetId]
+
+    $CdpServer.SetupNewPage($CdpPage)
+
+    $CdpPage
 }
 
 function Stop-CdpServer {
     <#
-		.SYNOPSIS
-		Disposes the Server Pipes, Threads, ChromeProcess, and RunspacePool
-	#>
+        .SYNOPSIS
+        Disposes the Server Pipes, Threads, ChromeProcess, and RunspacePool
+    #>
     [CmdletBinding()]
     param (
         [Parameter(ValueFromPipeline, Position = 0)]
@@ -1482,10 +1500,10 @@ function Stop-CdpServer {
 
 function Test-CdpSelector {
     <#
-		.SYNOPSIS
-		Returns nodes for exploring if selectors are found.
-		.PARAMETER FilterScript
-		The scriptblock that will filter find valid nodes.
+        .SYNOPSIS
+        Returns nodes for exploring if selectors are found.
+        .PARAMETER FilterScript
+        The scriptblock that will filter find valid nodes.
         Valid properties are:
 
         NodeId
@@ -1527,15 +1545,15 @@ function Test-CdpSelector {
             $_.NodeValue -eq 'submit'
         }
 
-		.PARAMETER Index
-		The nth number of the Nodes found by FilterScript
+        .PARAMETER Index
+        The nth number of the Nodes found by FilterScript
 
         .PARAMETER All
         Returns all found nodes for viewing
 
         .PARAMETER EnableDomEvents
         Keeps DOM events active
-	#>
+    #>
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
@@ -1568,15 +1586,15 @@ function Test-CdpSelector {
 
 function Wait-CdpPageLifecycleEvent {
     <#
-		.SYNOPSIS
-		Waits for provided LifecycleEvents.
-		.PARAMETER InputObject
-		The CdpPage or [pscustomobject]@{CdpPage; CdpFrame} from Get-CdpFrame.
-		.PARAMETER Events
-		The LifecycleEvent to wait for.
-		.PARAMETER Timeout
-		Max time to wait(ms) before giving up.
-	#>
+        .SYNOPSIS
+        Waits for provided LifecycleEvents.
+        .PARAMETER InputObject
+        The CdpPage or [pscustomobject]@{CdpPage; CdpFrame} from Get-CdpFrame.
+        .PARAMETER Events
+        The LifecycleEvent to wait for.
+        .PARAMETER Timeout
+        Max time to wait(ms) before giving up.
+    #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory, ValueFromPipeline)]
