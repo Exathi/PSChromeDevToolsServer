@@ -6,6 +6,8 @@ function Wait-CdpPageLifecycleEvent {
         The CdpPage or [pscustomobject]@{CdpPage; CdpFrame} from Get-CdpFrame.
         .PARAMETER Events
         The LifecycleEvent to wait for.
+        FirstPaint does not always fire, such as on about:blank.
+        There needs to be viewable text or renderable objects excluding frames, as frames have their own paintable content.
         .PARAMETER Timeout
         Max time to wait(ms) before giving up.
     #>
@@ -15,7 +17,7 @@ function Wait-CdpPageLifecycleEvent {
         [object]$InputObject,
         [ValidateSet('NetworkIdle', 'FirstPaint')]
         [string[]]$Events = @('NetworkIdle'),
-        [int]$Timeout = 1000
+        [int]$Timeout = 5000
     )
 
     process {
@@ -27,7 +29,8 @@ function Wait-CdpPageLifecycleEvent {
             $Target = $InputObject
         }
 
-        $Events | ForEach-Object { $Target.LoadingState[$_].Wait() }
+        $Waited = $Events | ForEach-Object { $Target.LoadingState[$_].Wait($Timeout) }
+        if ($Waited -contains $false) { throw ('Event did not fire in {0}ms. Try setting a higher timeout or make sure the page has paintable content.' -f $Timeout) }
 
         if ($_) { $CdpPage }
     }
