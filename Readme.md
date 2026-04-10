@@ -1,5 +1,5 @@
 # PSChromeDevToolsServer - Powershell Browser Automation
-[![Static Badge](https://img.shields.io/badge/Powershell%20Gallery-0.5.0-blue)](https://www.powershellgallery.com/packages/PSChromeDevToolsServer/)
+[![Static Badge](https://img.shields.io/badge/Powershell%20Gallery-0.5.1-blue)](https://www.powershellgallery.com/packages/PSChromeDevToolsServer/)
 
 
 Automate any Chromium browser with Powershell with `--remote-debugging-pipe` and `--remote-debugging-io-pipe`. I still couldn't find any examples in 2026 that made use of these switches with dotnet without tapping into WinApi functions.
@@ -21,6 +21,8 @@ Stop-CdpServer - Close browser and dispose pipes, processes, runspace pool.
 Get-CdpFrame - Tries to find a frame matching the provided url to be used with `Wait-CdpPageLifecycleEvent`. Returns a pscustomobject with `[CdpPage]` and `[CdpFrame]`
 
 New-CdpPage - Create new page/tab and returns `[CdpPage]`.
+
+Invoke-CdpCommand - Helper function to invoke any cdp command not yet implemented.
 
 Invoke-CdpPageNavigate - Navigate page and waits for the page to load and the unique javascript context to update for the new page.
 
@@ -73,7 +75,7 @@ $CdpServer.SendCommand()
 
 # These methods are responsible for starting runspaces to read and write to the pipes of the browser.
 # MessageReader is responsible for reading output from the browser.
-# MessageProcessor is responsible for processing the events such as setting the CdpPage with a SessionId.
+# MessageProcessor is responsible for processing the events such as setting the CdpPage with a SessionId. Multiple can be started for handling long duration OnBindingCalled.
 # MessageWriter is responsible for writing commands to the browser.
 $CdpServer.StartMessageReader()
 $CdpServer.StartMessageProcessor()
@@ -103,5 +105,3 @@ Page events and Javascript are on by default for the first tab.
 `[System.Threading.Interlocked]::Add([ref]$Int)` does not work across runspaces. `ConcurrentDictionary.AddOrUpdate()` and relevant other ConcurrentDictionary threadsafe methods are used for all atomic operations.
 
 ## Todo/Considerations
-
-Websocket?
