@@ -12,27 +12,34 @@ $OnBindingCalled = {
     if ($Response.params.name -ne 'PowershellServer') { return }
 
     $Payload = $Response.params.payload | ConvertFrom-Json
-    if ($Payload.Sender.StartsWith('First')) {
-        $StringBuilder = [System.Text.StringBuilder]::new()
+    switch ($Payload.Sender) {
+        'First' {
+            $StringBuilder = [System.Text.StringBuilder]::new()
 
-        $null = $StringBuilder.Append('<thead><tr><th>Name</th><th>Id</th><th>Memory KB</th><th>Start Time</th></tr></thead><tbody>')
+            $null = $StringBuilder.Append('<thead><tr><th>Name</th><th>Id</th><th>Memory KB</th><th>Start Time</th></tr></thead><tbody>')
 
-        $Data = Get-Process
-        $Data | ForEach-Object {
-            $null = $StringBuilder.Append("<tr><td>$($_.Name)</td><td>$($_.Id)</td><td>$($_.WorkingSet64 / 1KB)</td><td>$($_.StartTime)</td></tr>")
-        }
+            $Data = Get-Process
+            $Data | ForEach-Object {
+                $null = $StringBuilder.Append("<tr><td>$($_.Name)</td><td>$($_.Id)</td><td>$($_.WorkingSet64 / 1KB)</td><td>$($_.StartTime)</td></tr>")
+            }
 
-        $null = $StringBuilder.Append('</tbody>')
+            $null = $StringBuilder.Append('</tbody>')
 
-        $SharedState.Commands.SendRuntimeEvaluate.Invoke($Response.sessionId,
-            ("p = document.getElementById('powershellResponseTable');
-                p.innerHTML = '{0}';" -f $StringBuilder.ToString()
+            $SharedState.Commands.SendRuntimeEvaluate.Invoke($Response.sessionId, (
+                    "p = document.getElementById('powershellResponseTable');
+                    p.innerHTML = '{0}';" -f $StringBuilder.ToString()
+                )
             )
-        )
 
-        $null = $StringBuilder.Clear()
+            $null = $StringBuilder.Clear()
+            break
+        }
+        'Second' {
+            Write-Host 'Sleeping' -ForegroundColor Gray
+            Start-Sleep -Seconds 5
+            break
+        }
     }
-
     Write-Host ('Received callback from browser with payload: ({0}) Processed at: ({1})' -f $Response.params.payload, (Get-Date).DateTime) -ForegroundColor Cyan
     $SharedState.Commands.SendRuntimeEvaluate.Invoke($Response.sessionId, 'enableButton("{0}")' -f $Payload.Sender)
 }.Ast.GetScriptBlock()
@@ -43,9 +50,9 @@ $OnExecutionContextCreated = {
     Write-Verbose "Testing access: This.SharedState=$($null -ne $this.SharedState), This.EventHandler=$($null -ne $this.SharedState.EventHandler)"
     Write-Debug "Testing access: SharedState=$($null -ne $SharedState), SharedState.EventHandler=$($null -ne $SharedState.EventHandler)"
 
-    $CurrentPage = $SharedState.Commands.GetPageBySessionId.Invoke($Response.sessionId)
+    $CdpPage = $SharedState.Sessions[$Response.sessionId]
 
-    if ($CurrentPage.Url.StartsWith('file:///', [System.StringComparison]::OrdinalIgnoreCase)) {
+    if ($CdpPage.Url.StartsWith('file:///', [System.StringComparison]::OrdinalIgnoreCase)) {
         $SharedState.Commands.SendRuntimeEvaluate.Invoke($Response.sessionId, 'enableAllButtons()')
     }
 }.Ast.GetScriptBlock()
@@ -54,13 +61,11 @@ $CdpPage = Start-CdpServer -StartPage $UriBuilder.Uri.AbsoluteUri -UserDataDir $
     OnBindingCalled = $OnBindingCalled
     OnExecutionContextCreated = $OnExecutionContextCreated
 }# -Verbose -Debug
-$CdpServer = $CdpPage.CdpServer
 
 # Optionally start more threads to process messages if there is something that will run for a while.
-# $Server = Start-CdpServer -StartPage $UriBuilder.Uri.AbsoluteUri -UserDataDir $UserDataDir -BrowserPath $BrowserPath -Callbacks @{
-#     OnBindingCalled = $OnBindingCalled
-#     OnExecutionContextCreated = $OnExecutionContextCreated
-# } -AdditionalThreads 1
+$CdpServer = $CdpPage.CdpServer
+$CdpServer.StartMessageProcessor()
+$CdpServer.StartMessageProcessor()
 
 # Add 'PowershellServer' through addBinding. When a button is clicked, it calls window.PowershellServer(payload); configured in script.js
 # $OnBindingCalled is invoked and ran when a button is clicked.
@@ -73,4 +78,4 @@ $CdpServer.Threads.MessageReader.Streams
 $CdpServer.Threads.MessageProcessor.Streams
 $CdpServer.Threads.MessageWriter.Streams
 
-# Stop-CdpServer -Server $Server
+# Stop-CdpServer -CdpPage $CdpPage

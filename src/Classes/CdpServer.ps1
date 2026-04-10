@@ -12,8 +12,8 @@ class CdpServer {
     [pscustomobject]$Threads = @{
         MessageReader = $null
         MessageReaderHandle = $null
-        MessageProcessor = $null
-        MessageProcessorHandle = $null
+        MessageProcessor = [System.Collections.Generic.List[Powershell]]::new()
+        MessageProcessorHandle = [System.Collections.Generic.List[IAsyncResult]]::new()
         MessageWriter = $null
         MessageWriterHandle = $null
     }
@@ -83,6 +83,8 @@ class CdpServer {
     }
 
     [void]StartMessageReader() {
+        if ($this.RunspacePool.GetAvailableRunspaces() -eq 0) { throw 'no runspaces available in runspacepool' }
+
         $this.Threads.MessageReader = [powershell]::Create()
         $this.Threads.MessageReader.RunspacePool = $this.RunspacePool
         $null = $this.Threads.MessageReader.AddScript({
@@ -114,9 +116,12 @@ class CdpServer {
     }
 
     [void]StartMessageProcessor() {
-        $this.Threads.MessageProcessor = [powershell]::Create()
-        $this.Threads.MessageProcessor.RunspacePool = $this.RunspacePool
-        $null = $this.Threads.MessageProcessor.AddScript({
+        if ($this.RunspacePool.GetAvailableRunspaces() -eq 0) { throw 'no runspaces available in runspacepool' }
+
+        $Powershell = [powershell]::Create()
+        $this.Threads.MessageProcessor.Add($Powershell)
+        $Powershell.RunspacePool = $this.RunspacePool
+        $null = $Powershell.AddScript({
                 if ($SharedState.DebugPreference) { $DebugPreference = $SharedState.DebugPreference }
                 if ($SharedState.VerbosePreference) { $VerbosePreference = $SharedState.VerbosePreference }
 
@@ -138,10 +143,12 @@ class CdpServer {
                 }
             }
         )
-        $this.Threads.MessageProcessorHandle = $this.Threads.MessageProcessor.BeginInvoke()
+        $this.Threads.MessageProcessorHandle.Add($Powershell.BeginInvoke())
     }
 
     [void]StartMessageWriter() {
+        if ($this.RunspacePool.GetAvailableRunspaces() -eq 0) { throw 'no runspaces available in runspacepool' }
+
         $this.Threads.MessageWriter = [powershell]::Create()
         $this.Threads.MessageWriter.RunspacePool = $this.RunspacePool
         $null = $this.Threads.MessageWriter.AddScript({
@@ -165,9 +172,10 @@ class CdpServer {
             $this.Threads.MessageReader.EndInvoke($this.Threads.MessageReaderHandle)
             $this.Threads.MessageReader.Dispose()
         }
-        if ($this.Threads.MessageProcessorHandle) {
-            $this.Threads.MessageProcessor.EndInvoke($this.Threads.MessageProcessorHandle)
-            $this.Threads.MessageProcessor.Dispose()
+        if ($this.Threads.MessageProcessorHandle.Count -gt 0) {
+            for ($i = 0; $i -lt $this.Threads.MessageProcessorHandle.Count; $i++) {
+                $this.Threads.MessageProcessor[$i].EndInvoke($this.Threads.MessageProcessorHandle[$i])
+            }
         }
         if ($this.Threads.MessageWriterHandle) {
             $this.Threads.MessageWriter.EndInvoke($this.Threads.MessageWriterHandle)

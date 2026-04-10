@@ -46,7 +46,7 @@ function Start-CdpServer {
         [Parameter(Mandatory)]
         [string]$BrowserPath,
         [ValidateScript({ $_ -ge 0 })]
-        [int]$AdditionalThreads = 0,
+        [int]$AdditionalThreads = ([int]$env:NUMBER_OF_PROCESSORS * 2),
         [hashtable]$Callbacks,
         [switch]$DisableDefaultEvents,
         [object]$StreamOutput
