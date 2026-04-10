@@ -601,7 +601,8 @@ function ConvertTo-FlatNode {
     param (
         [Parameter(Mandatory)]
         [object]$Node,
-        [string]$TopParent = $null
+        [string]$TopParent = $null,
+        [bool]$IsShadowRoot
     )
 
     foreach ($Child in $Node) {
@@ -614,6 +615,7 @@ function ConvertTo-FlatNode {
 
         $FlatNode = [PSCustomObject]@{
             TopParentName = $IsHead
+            IsShadowRoot = $IsShadowRoot
             NodeId = $Child.nodeId
             NodeType = $Child.nodeType
             ParentId = $Child.parentId
@@ -625,7 +627,8 @@ function ConvertTo-FlatNode {
             FrameId = $Child.frameId
             AttributesString = $Child.attributes
             DocumentURL = $Child.documentURL
-            # ContentFrame = $null
+            # ShadowRoots = $Child.shadowRoots
+            # ContentFrame = $Child.contentFrame
         }
 
         $FlatNode.Attributes = if ($Child.attributes) {
@@ -638,12 +641,16 @@ function ConvertTo-FlatNode {
         }
 
         if ($Child.Children) {
-            ConvertTo-FlatNode -Node $Child.Children -TopParent $IsHead
+            ConvertTo-FlatNode -Node $Child.Children -TopParent $IsHead -IsShadowRoot $IsShadowRoot
         }
 
         if ($Child.contentDocument) {
             # $FlatNode.contentFrame = ConvertTo-FlatNode -Node $Child.contentDocument -TopParent $null
-            ConvertTo-FlatNode -Node $Child.contentDocument -TopParent $null
+            ConvertTo-FlatNode -Node $Child.contentDocument -TopParent $null -IsShadowRoot $IsShadowRoot
+        }
+
+        if ($Child.shadowRoots) {
+            ConvertTo-FlatNode -Node $Child.shadowRoots -TopParent $null -IsShadowRoot $true
         }
 
         $FlatNode
@@ -1565,6 +1572,7 @@ function Test-CdpSelector {
     )
 
     process {
+        $CdpServer = $CdpPage.CdpServer
         $Command = Get-DOM.getDocument $CdpPage.TargetInfo.SessionId
         $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
 
