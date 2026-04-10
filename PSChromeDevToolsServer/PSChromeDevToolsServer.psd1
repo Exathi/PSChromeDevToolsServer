@@ -4,7 +4,7 @@
     RootModule = 'PSChromeDevToolsServer.psm1'
 
     # Version number of this module.
-    ModuleVersion = '0.5.0'
+    ModuleVersion = '0.5.1'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -69,6 +69,7 @@ Uses anonymous pipes to connect to remote-debugging-pipes to control the browser
         'Stop-CdpServer'
         'Get-CdpFrame'
         'New-CdpPage'
+        'Invoke-CdpCommand'
         'Invoke-CdpPageNavigate'
         'Invoke-CdpInputClickElement'
         'Invoke-CdpInputSendKeys'
