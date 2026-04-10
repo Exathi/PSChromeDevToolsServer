@@ -65,6 +65,7 @@ function Test-CdpSelector {
     )
 
     process {
+        $CdpServer = $CdpPage.CdpServer
         $Command = Get-DOM.getDocument $CdpPage.TargetInfo.SessionId
         $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
 
