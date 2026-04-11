@@ -30,7 +30,7 @@ function New-CdpPage {
             $Command.params.newWindow = $true
             $Command.params.browserContextId = $Response.result.browserContextId
         } else {
-            $Command.params.browserContextId = $CdpPage.BrowserContextId
+            $Command.params.browserContextId = $CdpPage.TargetInfo['BrowserContextId']
         }
 
         $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)

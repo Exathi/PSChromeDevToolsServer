@@ -2,9 +2,7 @@ class CdpPage {
     # it's more dictionary now than property
     # did not want to use monitor.enter/exit
     [string]$TargetId
-    [string]$Url
     [string]$Title
-    [string]$BrowserContextId
     [int]$ProcessId
     [object]$CdpServer
 
@@ -18,12 +16,12 @@ class CdpPage {
         $this.LoadingState['FirstPaint'] = [System.Threading.ManualResetEventSlim]::new($false)
 
         $this.TargetId = $TargetId
-        $this.Url = $Url
         $this.Title = $Title
-        $this.BrowserContextId = $BrowserContextId
         $this.CdpServer = $CdpServer
 
         $this.TargetInfo['SessionId'] = $null
+        $this.TargetInfo['Url'] = $Url
+        $this.TargetInfo['BrowserContextId'] = $BrowserContextId
 
         $this.PageInfo['RuntimeUniqueId'] = $null
         $this.PageInfo['ObjectId'] = $null
@@ -32,9 +30,10 @@ class CdpPage {
     }
 
     [System.Collections.Concurrent.ConcurrentDictionary[string, object]]$TargetInfo = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
+    [System.Collections.Concurrent.ConcurrentDictionary[string, object]]$PageInfo = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
     [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]$LoadingState = [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]::new()
     [System.Collections.Concurrent.ConcurrentDictionary[string, CdpFrame]]$Frames = [System.Collections.Concurrent.ConcurrentDictionary[string, CdpFrame]]::new()
-    [System.Collections.Concurrent.ConcurrentDictionary[string, object]]$PageInfo = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
+
 
     [void]ResetLoadingState() {
         $this.LoadingState['NetworkIdle'].Reset()

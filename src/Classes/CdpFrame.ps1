@@ -1,7 +1,6 @@
 class CdpFrame {
     [string]$FrameId
     [string]$ParentFrameId
-    [string]$SessionId
 
     hidden [System.Threading.ManualResetEventSlim]$RuntimeReady = [System.Threading.ManualResetEventSlim]::new($false)
 
@@ -13,10 +12,12 @@ class CdpFrame {
 
         $this.FrameId = $FrameId
         $this.ParentFrameId = $null
-        $this.SessionId = $SessionId
+        $this.TargetInfo['SessionId'] = $SessionId
+        $this.TargetInfo['Url'] = $null
         $this.PageInfo['RuntimeUniqueId'] = $null
     }
 
+    [System.Collections.Concurrent.ConcurrentDictionary[string, object]]$TargetInfo = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
     [System.Collections.Concurrent.ConcurrentDictionary[string, object]]$PageInfo = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
     [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]$LoadingState = [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]::new()
 
