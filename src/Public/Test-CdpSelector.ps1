@@ -61,26 +61,44 @@ function Test-CdpSelector {
         [scriptblock]$FilterScript,
         [int]$Index = 0,
         [switch]$All,
-        [switch]$EnableDomEvents
+        [switch]$EnableDomEvents,
+        [int]$Timeout = 5000
     )
+
+    begin {
+        $PollInterval = 100
+        $Sequence = 0
+    }
 
     process {
         $CdpServer = $CdpPage.CdpServer
         $Command = Get-DOM.getDocument $CdpPage.TargetInfo.SessionId
-        $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+
+        $EndTime = (Get-Date).AddMilliseconds($Timeout)
+
+        while ($true) {
+            $Sequence++
+
+            $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+            $Root = $Response.result.root
+            $Document = ConvertTo-FlatNode -Node $Root
+            $Nodes = $Document | Where-Object { $_.TopParentName -ne 'HEAD' } | Where-Object -FilterScript $FilterScript
+
+            if ($Nodes) {
+                break
+            } elseif (($EndTime - (Get-Date)).TotalMilliseconds -lt 0) {
+                throw ('No node found in allotted time with FilterScript: {0}' -f $FilterScript)
+            } else {
+                Start-Sleep -Milliseconds ([math]::Min(($PollInterval * $Sequence), 1000))
+            }
+        }
 
         if (!$EnableDomEvents) {
             $Command = Get-DOM.disable $CdpPage.TargetInfo.SessionId
             $CdpServer.SendCommand($Command)
         }
 
-        $Root = $Response.result.root
-        $Document = ConvertTo-FlatNode -Node $Root
-
-        $Nodes = $Document | Where-Object { $_.TopParentName -ne 'HEAD' } | Where-Object -FilterScript $FilterScript
-
         if ($Nodes -and $All) { $Nodes }
-        elseif ($Nodes) { $Nodes[$Index] }
-        else { throw ('no node found with FilterScript: {0}' -f $FilterScript) }
+        else { $Nodes[$Index] }
     }
 }
