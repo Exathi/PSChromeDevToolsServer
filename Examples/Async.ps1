@@ -19,10 +19,10 @@ $TestClickType = {
     $CdpPage = New-CdpPage -CdpServer $CdpServer -Url 'about:blank' -NewWindow
     $null = $CdpPage | Invoke-CdpPageNavigate -Url 'https://www.selenium.dev/selenium/web/single_text_input.html' |
     Wait-CdpPageLifecycleEvent -Events NetworkIdle, FirstPaint -Timeout 5000 |
-    Invoke-CdpInputSendKeys -Keys 'Hello World'
+    Invoke-CdpInputSendKeys -Keys 'Hello World' -Delay 1
     Start-Sleep 2
-    $null = $CdpPage | Invoke-CdpInputClickElement -FilterScript { $_.Attributes.Name -eq 'id' -and $_.Attributes.Value -eq 'textInput' } -Click 3 -TopLeft |
-    Invoke-CdpInputSendKeys -Keys 'PSChromeDevToolsServer'
+    $null = $CdpPage | Invoke-CdpInputClickElement -FilterScript { $_.Attributes.Name -eq 'id' -and $_.Attributes.Value -eq 'textInput' } -Click 3 -Delay 1 -TopLeft |
+    Invoke-CdpInputSendKeys -Keys 'PSChromeDevToolsServer' -Delay 1
     'Finished TestClickType'
 
     $CdpPage2 = $CdpPage | New-CdpPage -Url 'https://www.selenium.dev/selenium/web/click_frames.html'
