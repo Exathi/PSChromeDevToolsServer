@@ -127,11 +127,11 @@ class CdpServer {
 
                 foreach ($Response in $SharedState.IO.UnprocessedResponses.GetConsumingEnumerable()) {
                     if ($Response.id) {
+                        $SharedState.CommandHistory[$Response.id].Response = $Response
                         switch ($SharedState.CommandHistory[$Response.id].WaitForResponse) {
                             'None' { break }
                             Default { $SharedState.CommandHistory[$Response.id].CommandReady.Set() }
                         }
-                        $SharedState.CommandHistory[$Response.id].Response = $Response
                     } else {
                         $SharedState.EventHandler.ProcessEvent($Response)
                     }
