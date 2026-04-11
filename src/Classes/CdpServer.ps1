@@ -136,10 +136,10 @@ class CdpServer {
                         $SharedState.EventHandler.ProcessEvent($Response)
                     }
 
+                    $SharedState.MessageHistory.Enqueue($Response)
                     while ($SharedState.MessageHistory.Count -gt 300) {
                         $SharedState.MessageHistory.TryDequeue([ref]$null)
                     }
-                    $SharedState.MessageHistory.Enqueue($Response)
                 }
             }
         )
