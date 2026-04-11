@@ -22,7 +22,7 @@ function Get-CdpFrame {
     }
 
     process {
-        $Start = Get-Date
+        $TimeoutTime = (Get-Date).AddMilliseconds($Timeout)
         do {
             $Sequence++
 
@@ -38,7 +38,7 @@ function Get-CdpFrame {
 
             if ($CdpFrame) { break }
             Start-Sleep -Milliseconds ([math]::Min(($PollInterval * $Sequence), 1000))
-        } while (($Start.AddMilliseconds($Timeout) - (Get-Date)).Milliseconds -gt 0)
+        } while (($TimeoutTime - (Get-Date)).Milliseconds -gt 0)
 
         if (!$CdpFrame) { throw ('Timed out. No frame found using: {0}' -f $Url) }
 
