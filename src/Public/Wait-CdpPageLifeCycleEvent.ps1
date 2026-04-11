@@ -29,8 +29,11 @@ function Wait-CdpPageLifecycleEvent {
             $Target = $InputObject
         }
 
-        $Waited = $Events | ForEach-Object { $Target.LoadingState[$_].Wait($Timeout) }
-        if ($Waited -contains $false) { throw ('Event did not fire in {0}ms. Try setting a higher timeout or make sure the page has paintable content.' -f $Timeout) }
+        $Events | ForEach-Object {
+            if (!$Target.LoadingState[$_].Wait($Timeout)) {
+                throw ('Event did not fire in {0}ms. Try setting a higher timeout or make sure the page has paintable content.' -f $Timeout)
+            }
+        }
 
         if ($_) { $CdpPage }
     }
