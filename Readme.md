@@ -19,15 +19,22 @@ Two goals in making this:
 ``` Powershell
 Import-Module '.\PSChromeDevToolsServer'
 
-$UserDataDir = 'D:\Non-Default\UserData\Folder' # Reminder to change this to your own folder!
-$UriBuilder = [System.UriBuilder]::new('about:blank')
-$BrowserPath = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
+$StartParams = @{
+    UserDataDir = 'D:\Non-Default\UserData\Folder' # Reminder to change this to your own folder!
+    StartPage = [System.UriBuilder]::new('about:blank').Uri.AbsoluteUri
+    BrowserPath = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
+}
 
-$CdpPage = Start-CdpServer -StartPage $UriBuilder.Uri.AbsoluteUri -UserDataDir $UserDataDir -BrowserPath $BrowserPath
+$CdpPage = Start-CdpServer @StartParams
 
-$CdpPage | Invoke-CdpPageNavigate -Url 'https://www.github.com' | Invoke-CdpRuntimeEvaluate -Expression 'document.title' | Out-Null
+$CdpPage |
+    Invoke-CdpPageNavigate -Url 'https://www.github.com' |
+    Invoke-CdpRuntimeEvaluate -Expression 'document.title' |
+    Out-Null
 
 $CdpPage.PageInfo['EvaluateResult'].value
+
+# Stop-CdpServer -CdpPage $CdpPage
 ```
 
 ## Commands
