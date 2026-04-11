@@ -1,66 +1,76 @@
-# PSChromeDevToolsServer - Powershell Browser Automation
+# PSChromeDevToolsServer - PowerShell Browser Automation
 [![Static Badge](https://img.shields.io/badge/Powershell%20Gallery-0.5.3-blue)](https://www.powershellgallery.com/packages/PSChromeDevToolsServer/)
 
 
-Automate any Chromium browser with Powershell with `--remote-debugging-pipe` and `--remote-debugging-io-pipe`. I still couldn't find any examples in 2026 that made use of these switches with dotnet without tapping into WinApi functions.
+Automate any Chromium browser with Windows PowerShell and Pwsh with `--remote-debugging-pipe` and `--remote-debugging-io-pipe`. Still couldn't find any examples in 2026 that made use of these switches with dotnet without tapping into WinApi functions.
 
-This uses only what's available by default in powershell. No external dependencies.
+ * Zero Dependencies: Pure PowerShell and .NET.
+ * This is NOT a wrapper around playwright/puppeteer/selenium.
+ * Only a small subset of Cdp commands are currently implemented.
 
 Two goals in making this:
 
-1. Light browser automation without external dependencies and be a potential step up from VBA. Only a small subset of Cdp commands are currently implemented.
+1. Light browser automation without external dependencies and be a potential step up from VBA.
 
 2. Use it as a local frontend for powershell without opening ports.
 
+## Quick Start
+
+``` Powershell
+Import-Module '.\PSChromeDevToolsServer'
+
+$UserDataDir = 'D:\Non-Default\UserData\Folder' # Reminder to change this to your own folder!
+$UriBuilder = [System.UriBuilder]::new('about:blank')
+$BrowserPath = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
+
+$CdpPage = Start-CdpServer -StartPage $UriBuilder.Uri.AbsoluteUri -UserDataDir $UserDataDir -BrowserPath $BrowserPath
+
+$CdpPage | Invoke-CdpPageNavigate -Url 'https://www.github.com' | Invoke-CdpRuntimeEvaluate -Expression 'document.title' | Out-Null
+
+$CdpPage.PageInfo['EvaluateResult'].value
+```
+
 ## Commands
 
-Start-CdpServer - Launch browser and returns the first `[CdpPage]`.
-
-Stop-CdpServer - Close browser and dispose pipes, processes, runspace pool.
-
-Get-CdpFrame - Tries to find a frame matching the provided url to be used with `Wait-CdpPageLifecycleEvent`. Returns a pscustomobject with `[CdpPage]` and `[CdpFrame]`
-
-Invoke-CdpCommand - Helper function to invoke any cdp command not yet implemented.
-
-New-CdpPage - Create new page/tab and returns `[CdpPage]`.
-
-Invoke-CdpPageNavigate - Navigate page and waits for the page to load and the unique javascript context to update for the new page.
-
-Invoke-CdpInputClickElement - Find element with a selector and click element via DOM.
-
-Invoke-CdpInputSendKeys - Sends keys to browser.
-
-Invoke-CdpRuntimeEvaluate - Run javascript on browser and return raw result.
-
-Invoke-CdpRuntimeAddBinding - Add binding object to enable browser communication to the `[CdpEventHandler]`.
-
-Test-CdpSelector - Find and return valid selectors for viewing.
-
-Wait-CdpPageLifecycleEvent - `[CdpPage]` or output from `Get-CdpFrame` to wait for a LifecycleEvent.
-
-ConvertTo-Delegate - Used to convert PSMethods to delegates for Windows Powershell. See `Examples\Async.ps1`.
+| Function | Description |
+|-|-|
+| Start-CdpServer | Launch browser and returns the first `[CdpPage]`. |
+| Stop-CdpServer | Close browser and dispose pipes, processes, and the runspace pool. |
+| Get-CdpFrame | Tries to find a frame matching the provided url to be used with `Wait-CdpPageLifecycleEvent`. Returns a pscustomobject with `[CdpPage]` and `[CdpFrame]` |
+| Invoke-CdpCommand | Helper function to invoke any cdp command not yet implemented. |
+| Invoke-CdpInputClickElement | Find element with a selector and click element via DOM. |
+| Invoke-CdpInputSendKeys | Sends keys to browser. |
+| Invoke-CdpPageNavigate | Navigate page and waits for the page to load and the unique javascript context to update for the new page. |
+| Invoke-CdpRuntimeAddBinding | Add binding object to enable browser communication to run provided callbacks in `[CdpEventHandler]`. |
+| Invoke-CdpRuntimeEvaluate | Run javascript on browser and return result in `[CdpPage].PageInfo['EvaluateResult']` and the response in `[CdpPage].PageInfo['EvaluateResponse']`. |
+| New-CdpPage | Create new page/tab and returns `[CdpPage]`. |
+| Test-CdpSelector | Find and return valid selectors for viewing. |
+| Wait-CdpPageLifecycleEvent | `[CdpPage]` or output from `Get-CdpFrame` to wait for a LifecycleEvent. |
+| ConvertTo-Delegate | Used to convert PSMethods to delegates for Windows Powershell. See `Examples\Async.ps1`. |
 
 ## Classes
 
-`Start-CdpServer` returns a `[CdpPage]`. Pass this into every function as they internally call `$CdpPage.CdpServer.SendCommand()` to send commands to the browser.
+Basic information on internal classes.
+
+`Start-CdpServer` returns a `[CdpPage]`. Pass this into every function as it internally calls `$CdpPage.CdpServer.SendCommand()` to send commands to the browser.
 
 ``` Powershell
-# Basic information about a tab target.
+# Basic information about a tab.
 [CdpPage]
 
-# Basic information about a frame. Resides in $Target.Frames
+# Basic information about a frame. Resides in $CdpPage.Frames
 [CdpFrame]
 
 # Responsible for providing methods to process each event response
 [CdpEventHandler]
 
 # Each method follows Cdp naming without the prefix.
-# Base methods are setup to provide basic tab and session/context handling.
+# Methods are setup to provide basic tab and session/context handling.
 $CdpEventHandler.DomContentEventFired() = Page.DomContentEventFired
 
 # This is where additional scriptblocks are held for each event to process for each event.
 # Can be added to with `Start-CdpServer -Callbacks @{OnEventName = {}}`
-# Events must be the same as the respective method name preceeded by 'On'
+# Events must be the same as the respective method name preceded by 'On'
 # Ex - OnDomContentEventFired
 $CdpEventHandler.EventHandlers['OnDomContentEventFired'] = {'do stuff'}
 
@@ -103,5 +113,3 @@ Some events such as `Target.targetCreated` `Target.attachedToTarget` `Target.det
 Page events and Javascript are on by default for the first tab.
 
 `[System.Threading.Interlocked]::Add([ref]$Int)` does not work across runspaces. `ConcurrentDictionary.AddOrUpdate()` and relevant other ConcurrentDictionary threadsafe methods are used for all atomic operations.
-
-## Todo/Considerations
