@@ -3,13 +3,18 @@ function Invoke-CdpInputSendKeys {
         .SYNOPSIS
         Sends keys to a session
         .PARAMETER Keys
-        String to send
+        String to send.
+        Include "$([char]13)" to press enter at any given point in the string.
         .EXAMPLE
-        Invoke-CdpInputSendKeys -CdpPage $CdpPage -Keys 'Hello World'
+        Invoke-CdpInputSendKeys -CdpPage $CdpPage -Keys "Hello World$([char]13)"
         .PARAMETER BringToFront
         Attemps to brings page to front once before sending keys.
         .PARAMETER Delay
         Time in ms between sending each key command.
+        .PARAMETER ExpectNavigation
+        Resets loading state of main page inorder to wait for the next page on click.
+        .PARAMETER Timeout
+        Max time in ms to wait for expected navigation before throwing an error.
     #>
     [CmdletBinding()]
     param (
@@ -19,7 +24,11 @@ function Invoke-CdpInputSendKeys {
         [string]$Keys,
         [switch]$BringToFront,
         [ValidateRange(0, [int]::MaxValue)]
-        [int]$Delay = 0
+        [int]$Delay = 0,
+        [Parameter(ParameterSetName = 'Navigation')]
+        [switch]$ExpectNavigation,
+        [Parameter(ParameterSetName = 'Navigation')]
+        [int]$Timeout = 60000
     )
 
     process {
@@ -30,6 +39,10 @@ function Invoke-CdpInputSendKeys {
         if ($BringToFront) {
             $CommandFront = Get-Page.bringToFront $SessionId
             $null = $CdpServer.SendCommand($CommandFront, [WaitForResponse]::Message)
+        }
+
+        if ($PSCmdlet.ParameterSetName.Contains('Navigation')) {
+            $CdpPage.ResetLoadingState()
         }
 
         $CommandIds = foreach ($Char in $Keys[0..($Keys.Length - 1)]) {
@@ -43,6 +56,10 @@ function Invoke-CdpInputSendKeys {
             $History.CommandReady.Wait()
             $History.CommandReady.Dispose()
             $History.CommandReady = $null
+        }
+
+        if ($PSCmdlet.ParameterSetName.Contains('Navigation')) {
+            $CdpServer.WaitForPageLoad($CdpPage, $Timeout)
         }
 
         $_

@@ -59,6 +59,10 @@ function Invoke-CdpInputClickElement {
         Attemps to brings page to front once before sending click.
         .PARAMETER Delay
         Time in ms between each mouse down and mouse up command.
+        .PARAMETER ExpectNavigation
+        Resets loading state of main page inorder to wait for the next page on click.
+        .PARAMETER Timeout
+        Max time in ms to wait for expected navigation before throwing an error.
     #>
     [CmdletBinding()]
     param (
@@ -73,7 +77,11 @@ function Invoke-CdpInputClickElement {
         [switch]$TopLeft,
         [switch]$BringToFront,
         [ValidateRange(0, [int]::MaxValue)]
-        [int]$Delay = 0
+        [int]$Delay = 0,
+        [Parameter(ParameterSetName = 'Navigation')]
+        [switch]$ExpectNavigation,
+        [Parameter(ParameterSetName = 'Navigation')]
+        [int]$Timeout = 60000
     )
 
     process {
@@ -115,6 +123,10 @@ function Invoke-CdpInputClickElement {
             $null = $CdpServer.SendCommand($CommandFront, [WaitForResponse]::Message)
         }
 
+        if ($PSCmdlet.ParameterSetName.Contains('Navigation')) {
+            $CdpPage.ResetLoadingState()
+        }
+
         $CommandIds = @(
             $CdpServer.SendCommand($Command, [WaitForResponse]::CommandId)
             $Command.params.type = 'mouseReleased'
@@ -127,6 +139,10 @@ function Invoke-CdpInputClickElement {
             $History.CommandReady.Wait()
             $History.CommandReady.Dispose()
             $History.CommandReady = $null
+        }
+
+        if ($PSCmdlet.ParameterSetName.Contains('Navigation')) {
+            $CdpServer.WaitForPageLoad($CdpPage, $Timeout)
         }
 
         $_
