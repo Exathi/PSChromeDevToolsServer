@@ -271,16 +271,16 @@ class CdpServer {
         return $Events
     }
 
-    [void]WaitForPageLoad([CdpPage]$CdpPage) {
-        $CdpPage.LoadingState['Load'].Wait()
-        $CdpPage.LoadingState['FrameStoppedLoading'].Wait()
-        $CdpPage.RuntimeReady.Wait()
+    [void]WaitForPageLoad([CdpPage]$CdpPage, [int]$Timeout) {
+        if (!$CdpPage.LoadingState['Load'].Wait($Timeout)) { throw 'Page Load event was not fired.' }
+        if (!$CdpPage.LoadingState['FrameStoppedLoading'].Wait($Timeout)) { throw 'Page FrameStoppedLoading event was not fired.' }
+        if (!$CdpPage.RuntimeReady.Wait($Timeout)) { throw 'Page Runtime context id was not created in time.' }
 
         # Wait for all child frames to load and have executioncontext
         foreach ($CdpFrame in $CdpPage.Frames.GetEnumerator()) {
-            $CdpFrame.Value.LoadingState['Load'].Wait()
-            $CdpFrame.Value.LoadingState['FrameStoppedLoading'].Wait()
-            $CdpFrame.Value.RuntimeReady.Wait()
+            if (!$CdpFrame.Value.LoadingState['Load'].Wait($Timeout)) { throw 'Frame Load event was not fired.' }
+            if (!$CdpFrame.Value.LoadingState['FrameStoppedLoading'].Wait($Timeout)) { throw 'Frame FrameStoppedLoading event was not fired.' }
+            if (!$CdpFrame.Value.RuntimeReady.Wait($Timeout)) { throw 'Frame Runtime context id was not created in time.' }
         }
     }
 

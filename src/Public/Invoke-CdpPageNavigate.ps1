@@ -26,7 +26,7 @@ function Invoke-CdpPageNavigate {
         $Command = Get-Page.navigate $SessionId $Url
         $null = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
 
-        $CdpServer.WaitForPageLoad($CdpPage)
+        $CdpServer.WaitForPageLoad($CdpPage, 60000)
 
         $_
     }
