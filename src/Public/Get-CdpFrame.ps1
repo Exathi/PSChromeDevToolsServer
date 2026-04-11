@@ -16,20 +16,31 @@ function Get-CdpFrame {
         [int]$Timeout = 5000
     )
 
+    begin {
+        $PollInterval = 100
+        $Sequence = 0
+    }
+
     process {
         $Start = Get-Date
         do {
+            $Sequence++
+
             $Command = Get-Page.getFrameTree $CdpPage.TargetInfo.SessionId
             $Response = $CdpPage.CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+
             $FramesTree = Get-CdpFrameTree $Response.result.frameTree
+
             $Match = $FramesTree.url | Select-String -Pattern $Url
             $MatchedFrame = $FramesTree | Where-Object { $_.url -eq $Match.Line }
+
             $CdpFrame = $CdpPage.Frames.Values | Where-Object { $_.FrameId -eq $MatchedFrame.id }
+
             if ($CdpFrame) { break }
-            Start-Sleep -Milliseconds 1
+            Start-Sleep -Milliseconds ([math]::Min(($PollInterval * $Sequence), 1000))
         } while (($Start.AddMilliseconds($Timeout) - (Get-Date)).Milliseconds -gt 0)
 
-        if (!$CdpFrame) { throw ('No frame found using: {0}' -f $Url) }
+        if (!$CdpFrame) { throw ('Timed out. No frame found using: {0}' -f $Url) }
 
         [pscustomobject]@{
             CdpPage = $CdpPage
