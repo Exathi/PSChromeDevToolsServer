@@ -1,7 +1,6 @@
 class CdpFrame {
     [string]$FrameId
     [string]$ParentFrameId
-    [string]$SessionId
 
     hidden [System.Threading.ManualResetEventSlim]$RuntimeReady = [System.Threading.ManualResetEventSlim]::new($false)
 
@@ -13,10 +12,12 @@ class CdpFrame {
 
         $this.FrameId = $FrameId
         $this.ParentFrameId = $null
-        $this.SessionId = $SessionId
+        $this.TargetInfo['SessionId'] = $SessionId
+        $this.TargetInfo['Url'] = $null
         $this.PageInfo['RuntimeUniqueId'] = $null
     }
 
+    [System.Collections.Concurrent.ConcurrentDictionary[string, object]]$TargetInfo = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
     [System.Collections.Concurrent.ConcurrentDictionary[string, object]]$PageInfo = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
     [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]$LoadingState = [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]::new()
 
@@ -41,9 +42,7 @@ class CdpPage {
     # it's more dictionary now than property
     # did not want to use monitor.enter/exit
     [string]$TargetId
-    [string]$Url
     [string]$Title
-    [string]$BrowserContextId
     [int]$ProcessId
     [object]$CdpServer
 
@@ -57,12 +56,12 @@ class CdpPage {
         $this.LoadingState['FirstPaint'] = [System.Threading.ManualResetEventSlim]::new($false)
 
         $this.TargetId = $TargetId
-        $this.Url = $Url
         $this.Title = $Title
-        $this.BrowserContextId = $BrowserContextId
         $this.CdpServer = $CdpServer
 
         $this.TargetInfo['SessionId'] = $null
+        $this.TargetInfo['Url'] = $Url
+        $this.TargetInfo['BrowserContextId'] = $BrowserContextId
 
         $this.PageInfo['RuntimeUniqueId'] = $null
         $this.PageInfo['ObjectId'] = $null
@@ -71,9 +70,10 @@ class CdpPage {
     }
 
     [System.Collections.Concurrent.ConcurrentDictionary[string, object]]$TargetInfo = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
+    [System.Collections.Concurrent.ConcurrentDictionary[string, object]]$PageInfo = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
     [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]$LoadingState = [System.Collections.Concurrent.ConcurrentDictionary[string, [System.Threading.ManualResetEventSlim]]]::new()
     [System.Collections.Concurrent.ConcurrentDictionary[string, CdpFrame]]$Frames = [System.Collections.Concurrent.ConcurrentDictionary[string, CdpFrame]]::new()
-    [System.Collections.Concurrent.ConcurrentDictionary[string, object]]$PageInfo = [System.Collections.Concurrent.ConcurrentDictionary[string, object]]::new()
+
 
     [void]ResetLoadingState() {
         $this.LoadingState['NetworkIdle'].Reset()
@@ -113,6 +113,7 @@ class CdpEventHandler {
         $this.EventHandlers = @{
             'Page.frameAttached' = $this.FrameAttached
             'Page.frameDetached' = $this.FrameDetached
+            'Page.frameNavigated' = $this.FrameNavigated
             'Page.lifecycleEvent' = $this.LifecycleEvent
             'Page.frameStoppedLoading' = $this.FrameStoppedLoading
             'Target.targetCreated' = $this.TargetCreated
@@ -148,6 +149,19 @@ class CdpEventHandler {
         $CdpFrame = $null
         if ($CdpPage.Frames.TryRemove($Response.params.frameId, [ref]$CdpFrame)) {
             $CdpFrame.Dispose()
+        }
+    }
+
+    hidden [void]FrameNavigated($Response) {
+        $CdpPage = $this.GetPageBySessionId($Response.sessionId)
+
+        if ($CdpPage.TargetId -eq $Response.params.frame.id) {
+            # Let targetinfo changed update instead.
+            # But we have to check incase we're not adding a target into the frame dictionary
+        } else {
+            $Target = $CdpPage.Frames.GetOrAdd($Response.params.frame.id, [CdpFrame]::new($Response.params.frame.id, $Response.sessionId))
+            $Target.TargetInfo['Url'] = $Response.params.frame.url
+            $Target.TargetInfo['Name'] = $Response.params.frame.name
         }
     }
 
@@ -214,7 +228,7 @@ class CdpEventHandler {
         $Target = $Response.params.targetInfo
         $CdpPage = $this.GetPageByTargetId($Target.targetId)
         if ($CdpPage) {
-            $CdpPage.Url = $Target.Url
+            $CdpPage.TargetInfo['Url'] = $Target.Url
             $CdpPage.Title = $Target.Title
             $CdpPage.ProcessId = $Target.pid
         }
@@ -401,19 +415,19 @@ class CdpServer {
 
                 foreach ($Response in $SharedState.IO.UnprocessedResponses.GetConsumingEnumerable()) {
                     if ($Response.id) {
+                        $SharedState.CommandHistory[$Response.id].Response = $Response
                         switch ($SharedState.CommandHistory[$Response.id].WaitForResponse) {
                             'None' { break }
                             Default { $SharedState.CommandHistory[$Response.id].CommandReady.Set() }
                         }
-                        $SharedState.CommandHistory[$Response.id].Response = $Response
                     } else {
                         $SharedState.EventHandler.ProcessEvent($Response)
                     }
 
+                    $SharedState.MessageHistory.Enqueue($Response)
                     while ($SharedState.MessageHistory.Count -gt 300) {
                         $SharedState.MessageHistory.TryDequeue([ref]$null)
                     }
-                    $SharedState.MessageHistory.Enqueue($Response)
                 }
             }
         )
@@ -545,16 +559,16 @@ class CdpServer {
         return $Events
     }
 
-    [void]WaitForPageLoad([CdpPage]$CdpPage) {
-        $CdpPage.LoadingState['Load'].Wait()
-        $CdpPage.LoadingState['FrameStoppedLoading'].Wait()
-        $CdpPage.RuntimeReady.Wait()
+    [void]WaitForPageLoad([CdpPage]$CdpPage, [int]$Timeout) {
+        if (!$CdpPage.LoadingState['Load'].Wait($Timeout)) { throw 'Page Load event was not fired.' }
+        if (!$CdpPage.LoadingState['FrameStoppedLoading'].Wait($Timeout)) { throw 'Page FrameStoppedLoading event was not fired.' }
+        if (!$CdpPage.RuntimeReady.Wait($Timeout)) { throw 'Page Runtime context id was not created in time.' }
 
         # Wait for all child frames to load and have executioncontext
         foreach ($CdpFrame in $CdpPage.Frames.GetEnumerator()) {
-            $CdpFrame.Value.LoadingState['Load'].Wait()
-            $CdpFrame.Value.LoadingState['FrameStoppedLoading'].Wait()
-            $CdpFrame.Value.RuntimeReady.Wait()
+            if (!$CdpFrame.Value.LoadingState['Load'].Wait($Timeout)) { throw 'Frame Load event was not fired.' }
+            if (!$CdpFrame.Value.LoadingState['FrameStoppedLoading'].Wait($Timeout)) { throw 'Frame FrameStoppedLoading event was not fired.' }
+            if (!$CdpFrame.Value.RuntimeReady.Wait($Timeout)) { throw 'Frame Runtime context id was not created in time.' }
         }
     }
 
@@ -962,20 +976,31 @@ function Get-CdpFrame {
         [int]$Timeout = 5000
     )
 
+    begin {
+        $PollInterval = 100
+        $Sequence = 0
+    }
+
     process {
-        $Start = Get-Date
+        $TimeoutTime = (Get-Date).AddMilliseconds($Timeout)
         do {
+            $Sequence++
+
             $Command = Get-Page.getFrameTree $CdpPage.TargetInfo.SessionId
             $Response = $CdpPage.CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+
             $FramesTree = Get-CdpFrameTree $Response.result.frameTree
+
             $Match = $FramesTree.url | Select-String -Pattern $Url
             $MatchedFrame = $FramesTree | Where-Object { $_.url -eq $Match.Line }
-            $CdpFrame = $CdpPage.Frames.Values | Where-Object { $_.FrameId -eq $MatchedFrame.id }
-            if ($CdpFrame) { break }
-            Start-Sleep -Milliseconds 1
-        } while (($Start.AddMilliseconds($Timeout) - (Get-Date)).Milliseconds -gt 0)
 
-        if (!$CdpFrame) { throw ('No frame found using: {0}' -f $Url) }
+            $CdpFrame = $CdpPage.Frames.Values | Where-Object { $_.FrameId -eq $MatchedFrame.id }
+
+            if ($CdpFrame) { break }
+            Start-Sleep -Milliseconds ([math]::Min(($PollInterval * $Sequence), 1000))
+        } while (($TimeoutTime - (Get-Date)).Milliseconds -gt 0)
+
+        if (!$CdpFrame) { throw ('Timed out. No frame found using: {0}' -f $Url) }
 
         [pscustomobject]@{
             CdpPage = $CdpPage
@@ -1087,6 +1112,10 @@ function Invoke-CdpInputClickElement {
         Attemps to brings page to front once before sending click.
         .PARAMETER Delay
         Time in ms between each mouse down and mouse up command.
+        .PARAMETER ExpectNavigation
+        Resets loading state of main page inorder to wait for the next page on click.
+        .PARAMETER Timeout
+        Max time in ms to wait for expected navigation before throwing an error.
     #>
     [CmdletBinding()]
     param (
@@ -1101,7 +1130,11 @@ function Invoke-CdpInputClickElement {
         [switch]$TopLeft,
         [switch]$BringToFront,
         [ValidateRange(0, [int]::MaxValue)]
-        [int]$Delay = 0
+        [int]$Delay = 0,
+        [Parameter(ParameterSetName = 'Navigation')]
+        [switch]$ExpectNavigation,
+        [Parameter(ParameterSetName = 'Navigation')]
+        [int]$Timeout = 60000
     )
 
     process {
@@ -1143,6 +1176,10 @@ function Invoke-CdpInputClickElement {
             $null = $CdpServer.SendCommand($CommandFront, [WaitForResponse]::Message)
         }
 
+        if ($PSCmdlet.ParameterSetName.Contains('Navigation')) {
+            $CdpPage.ResetLoadingState()
+        }
+
         $CommandIds = @(
             $CdpServer.SendCommand($Command, [WaitForResponse]::CommandId)
             $Command.params.type = 'mouseReleased'
@@ -1157,6 +1194,10 @@ function Invoke-CdpInputClickElement {
             $History.CommandReady = $null
         }
 
+        if ($PSCmdlet.ParameterSetName.Contains('Navigation')) {
+            $CdpServer.WaitForPageLoad($CdpPage, $Timeout)
+        }
+
         $_
     }
 }
@@ -1166,13 +1207,18 @@ function Invoke-CdpInputSendKeys {
         .SYNOPSIS
         Sends keys to a session
         .PARAMETER Keys
-        String to send
+        String to send.
+        Include "$([char]13)" to press enter at any given point in the string.
         .EXAMPLE
-        Invoke-CdpInputSendKeys -CdpPage $CdpPage -Keys 'Hello World'
+        Invoke-CdpInputSendKeys -CdpPage $CdpPage -Keys "Hello World$([char]13)"
         .PARAMETER BringToFront
         Attemps to brings page to front once before sending keys.
         .PARAMETER Delay
         Time in ms between sending each key command.
+        .PARAMETER ExpectNavigation
+        Resets loading state of main page inorder to wait for the next page on click.
+        .PARAMETER Timeout
+        Max time in ms to wait for expected navigation before throwing an error.
     #>
     [CmdletBinding()]
     param (
@@ -1182,7 +1228,11 @@ function Invoke-CdpInputSendKeys {
         [string]$Keys,
         [switch]$BringToFront,
         [ValidateRange(0, [int]::MaxValue)]
-        [int]$Delay = 0
+        [int]$Delay = 0,
+        [Parameter(ParameterSetName = 'Navigation')]
+        [switch]$ExpectNavigation,
+        [Parameter(ParameterSetName = 'Navigation')]
+        [int]$Timeout = 60000
     )
 
     process {
@@ -1193,6 +1243,10 @@ function Invoke-CdpInputSendKeys {
         if ($BringToFront) {
             $CommandFront = Get-Page.bringToFront $SessionId
             $null = $CdpServer.SendCommand($CommandFront, [WaitForResponse]::Message)
+        }
+
+        if ($PSCmdlet.ParameterSetName.Contains('Navigation')) {
+            $CdpPage.ResetLoadingState()
         }
 
         $CommandIds = foreach ($Char in $Keys[0..($Keys.Length - 1)]) {
@@ -1208,6 +1262,10 @@ function Invoke-CdpInputSendKeys {
             $History.CommandReady = $null
         }
 
+        if ($PSCmdlet.ParameterSetName.Contains('Navigation')) {
+            $CdpServer.WaitForPageLoad($CdpPage, $Timeout)
+        }
+
         $_
     }
 }
@@ -1217,13 +1275,16 @@ function Invoke-CdpPageNavigate {
         .SYNOPSIS
         Navigates and automatically waits for the page to load with Page.lifecycleEvent.load and FrameStoppedLoading
         Also waits for frames to load if they are present
+        .PARAMETER Timeout
+        Max amount of time to wait for page to load before throwing.
     #>
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
         [CdpPage]$CdpPage,
         [Parameter(Mandatory)]
-        [string]$Url
+        [string]$Url,
+        [int]$Timeout = 60000
     )
 
     process {
@@ -1240,7 +1301,7 @@ function Invoke-CdpPageNavigate {
         $Command = Get-Page.navigate $SessionId $Url
         $null = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
 
-        $CdpServer.WaitForPageLoad($CdpPage)
+        $CdpServer.WaitForPageLoad($CdpPage, $Timeout)
 
         $_
     }
@@ -1374,7 +1435,7 @@ function New-CdpPage {
             $Command.params.newWindow = $true
             $Command.params.browserContextId = $Response.result.browserContextId
         } else {
-            $Command.params.browserContextId = $CdpPage.BrowserContextId
+            $Command.params.browserContextId = $CdpPage.TargetInfo['BrowserContextId']
         }
 
         $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
@@ -1568,27 +1629,45 @@ function Test-CdpSelector {
         [scriptblock]$FilterScript,
         [int]$Index = 0,
         [switch]$All,
-        [switch]$EnableDomEvents
+        [switch]$EnableDomEvents,
+        [int]$Timeout = 5000
     )
+
+    begin {
+        $PollInterval = 100
+        $Sequence = 0
+    }
 
     process {
         $CdpServer = $CdpPage.CdpServer
         $Command = Get-DOM.getDocument $CdpPage.TargetInfo.SessionId
-        $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+
+        $EndTime = (Get-Date).AddMilliseconds($Timeout)
+
+        while ($true) {
+            $Sequence++
+
+            $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+            $Root = $Response.result.root
+            $Document = ConvertTo-FlatNode -Node $Root
+            $Nodes = $Document | Where-Object { $_.TopParentName -ne 'HEAD' } | Where-Object -FilterScript $FilterScript
+
+            if ($Nodes) {
+                break
+            } elseif (($EndTime - (Get-Date)).TotalMilliseconds -lt 0) {
+                throw ('No node found in allotted time with FilterScript: {0}' -f $FilterScript)
+            } else {
+                Start-Sleep -Milliseconds ([math]::Min(($PollInterval * $Sequence), 1000))
+            }
+        }
 
         if (!$EnableDomEvents) {
             $Command = Get-DOM.disable $CdpPage.TargetInfo.SessionId
             $CdpServer.SendCommand($Command)
         }
 
-        $Root = $Response.result.root
-        $Document = ConvertTo-FlatNode -Node $Root
-
-        $Nodes = $Document | Where-Object { $_.TopParentName -ne 'HEAD' } | Where-Object -FilterScript $FilterScript
-
         if ($Nodes -and $All) { $Nodes }
-        elseif ($Nodes) { $Nodes[$Index] }
-        else { throw ('no node found with FilterScript: {0}' -f $FilterScript) }
+        else { $Nodes[$Index] }
     }
 }
 
@@ -1600,6 +1679,8 @@ function Wait-CdpPageLifecycleEvent {
         The CdpPage or [pscustomobject]@{CdpPage; CdpFrame} from Get-CdpFrame.
         .PARAMETER Events
         The LifecycleEvent to wait for.
+        FirstPaint does not always fire, such as on about:blank.
+        There needs to be viewable text or renderable objects excluding frames, as frames have their own paintable content.
         .PARAMETER Timeout
         Max time to wait(ms) before giving up.
     #>
@@ -1609,7 +1690,7 @@ function Wait-CdpPageLifecycleEvent {
         [object]$InputObject,
         [ValidateSet('NetworkIdle', 'FirstPaint')]
         [string[]]$Events = @('NetworkIdle'),
-        [int]$Timeout = 1000
+        [int]$Timeout = 5000
     )
 
     process {
@@ -1621,7 +1702,11 @@ function Wait-CdpPageLifecycleEvent {
             $Target = $InputObject
         }
 
-        $Events | ForEach-Object { $Target.LoadingState[$_].Wait() }
+        $Events | ForEach-Object {
+            if (!$Target.LoadingState[$_].Wait($Timeout)) {
+                throw ('Event did not fire in {0}ms. Try setting a higher timeout or make sure the page has paintable content.' -f $Timeout)
+            }
+        }
 
         if ($_) { $CdpPage }
     }
