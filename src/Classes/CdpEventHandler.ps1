@@ -13,6 +13,7 @@ class CdpEventHandler {
         $this.EventHandlers = @{
             'Page.frameAttached' = $this.FrameAttached
             'Page.frameDetached' = $this.FrameDetached
+            'Page.frameNavigated' = $this.FrameNavigated
             'Page.lifecycleEvent' = $this.LifecycleEvent
             'Page.frameStoppedLoading' = $this.FrameStoppedLoading
             'Target.targetCreated' = $this.TargetCreated
@@ -48,6 +49,19 @@ class CdpEventHandler {
         $CdpFrame = $null
         if ($CdpPage.Frames.TryRemove($Response.params.frameId, [ref]$CdpFrame)) {
             $CdpFrame.Dispose()
+        }
+    }
+
+    hidden [void]FrameNavigated($Response) {
+        $CdpPage = $this.GetPageBySessionId($Response.sessionId)
+
+        if ($CdpPage.TargetId -eq $Response.params.frame.id) {
+            # Let targetinfo changed update instead.
+            # But we have to check incase we're not adding a target into the frame dictionary
+        } else {
+            $Target = $CdpPage.Frames.GetOrAdd($Response.params.frame.id, [CdpFrame]::new($Response.params.frame.id, $Response.sessionId))
+            $Target.TargetInfo['Url'] = $Response.params.frame.url
+            $Target.TargetInfo['Name'] = $Response.params.frame.name
         }
     }
 
@@ -114,7 +128,7 @@ class CdpEventHandler {
         $Target = $Response.params.targetInfo
         $CdpPage = $this.GetPageByTargetId($Target.targetId)
         if ($CdpPage) {
-            $CdpPage.Url = $Target.Url
+            $CdpPage.TargetInfo['Url'] = $Target.Url
             $CdpPage.Title = $Target.Title
             $CdpPage.ProcessId = $Target.pid
         }
