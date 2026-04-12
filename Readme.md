@@ -51,6 +51,7 @@ $CdpPage.PageInfo['EvaluateResult'].value
 | Invoke-CdpRuntimeAddBinding | Add binding object to enable browser communication to run provided callbacks in `[CdpEventHandler]`. |
 | Invoke-CdpRuntimeEvaluate | Run javascript on browser and return result in `[CdpPage].PageInfo['EvaluateResult']` and the response in `[CdpPage].PageInfo['EvaluateResponse']`. |
 | New-CdpPage | Create new page/tab and returns `[CdpPage]`. |
+| Send-CdpDomFileUpload | Uploads files to the input element found by filterscript. |
 | Test-CdpSelector | Find and return valid selectors for viewing. |
 | Wait-CdpPageLifecycleEvent | `[CdpPage]` or output from `Get-CdpFrame` to wait for a LifecycleEvent. |
 | ConvertTo-Delegate | Used to convert PSMethods to delegates for Windows Powershell. See `Examples\Async.ps1`. |

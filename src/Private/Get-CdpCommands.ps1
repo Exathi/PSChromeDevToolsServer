@@ -33,6 +33,17 @@ function Get-DOM.getDocument {
         }
     }
 }
+function Get-DOM.setFileInputFiles {
+    param($SessionId, $Files, $BackendNodeId)
+    @{
+        method = 'DOM.setFileInputFiles'
+        sessionId = $SessionId
+        params = @{
+            files = @($Files)
+            backendNodeId = $BackendNodeId
+        }
+    }
+}
 
 function Get-Input.dispatchKeyEvent {
     param($SessionId, $Text)

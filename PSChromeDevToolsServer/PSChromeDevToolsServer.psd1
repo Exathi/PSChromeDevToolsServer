@@ -75,6 +75,7 @@ Uses anonymous pipes to connect to remote-debugging-pipes to control the browser
         'Invoke-CdpInputSendKeys'
         'Invoke-CdpRuntimeEvaluate'
         'Invoke-CdpRuntimeAddBinding'
+        'Send-CdpDomUploadFile'
         'Test-CdpSelector'
         'Wait-CdpPageLifecycleEvent'
         'ConvertTo-Delegate'
