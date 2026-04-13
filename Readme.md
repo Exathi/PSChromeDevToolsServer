@@ -48,6 +48,7 @@ $CdpPage.PageInfo['EvaluateResult'].value
 | Invoke-CdpInputClickElement | Find element with a selector and click element via DOM. |
 | Invoke-CdpInputSendKeys | Sends keys to browser. |
 | Invoke-CdpPageNavigate | Navigate page and waits for the page to load and the unique javascript context to update for the new page. |
+| Invoke-CdpPagePrintToPdf | Prints page to pdf. |
 | Invoke-CdpRuntimeAddBinding | Add binding object to enable browser communication to run provided callbacks in `[CdpEventHandler]`. |
 | Invoke-CdpRuntimeEvaluate | Run javascript on browser and return result in `[CdpPage].PageInfo['EvaluateResult']` and the response in `[CdpPage].PageInfo['EvaluateResponse']`. |
 | New-CdpPage | Create new page/tab and returns `[CdpPage]`. |
