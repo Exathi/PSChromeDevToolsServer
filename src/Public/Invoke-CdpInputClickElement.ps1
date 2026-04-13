@@ -102,7 +102,7 @@ function Invoke-CdpInputClickElement {
         if ($Response.error) { throw 'Could not get box model. {0}' -f "$($Response.error)" }
 
         # Disable dom events now that we don't need nodes anymore.
-        $Command = Get-DOM.disable $CdpPage.TargetInfo.SessionId
+        $Command = Get-DOM.disable $CdpPage.TargetInfo['SessionId']
         $CdpServer.SendCommand($Command)
 
         $CdpPage.PageInfo['BoxModel'] = $Response.result.model

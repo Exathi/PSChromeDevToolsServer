@@ -72,7 +72,7 @@ function Test-CdpSelector {
 
     process {
         $CdpServer = $CdpPage.CdpServer
-        $Command = Get-DOM.getDocument $CdpPage.TargetInfo.SessionId
+        $Command = Get-DOM.getDocument $CdpPage.TargetInfo['SessionId']
 
         $EndTime = (Get-Date).AddMilliseconds($Timeout)
 
@@ -94,7 +94,7 @@ function Test-CdpSelector {
         }
 
         if (!$EnableDomEvents) {
-            $Command = Get-DOM.disable $CdpPage.TargetInfo.SessionId
+            $Command = Get-DOM.disable $CdpPage.TargetInfo['SessionId']
             $CdpServer.SendCommand($Command)
         }
 

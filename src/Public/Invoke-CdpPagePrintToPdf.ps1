@@ -68,7 +68,7 @@ function Invoke-CdpPagePrintToPdf {
         $CdpServer = $CdpPage.CdpServer
         $Command = @{
             method = 'Page.printToPDF'
-            sessionId = $CdpPage.TargetInfo.SessionId
+            sessionId = $CdpPage.TargetInfo['SessionId']
         }
 
         $Command.params = @{
@@ -90,7 +90,7 @@ function Invoke-CdpPagePrintToPdf {
         $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
         if ($Response.error) { throw ('Did not print. {0}' -f $Response.error) }
         [System.IO.File]::WriteAllBytes($FilePath, [System.Convert]::FromBase64String($Response.result.data))
-        $CdpServer.SharedState.CommandHistory[$Response.id].Response.result.data = $null
+        $CdpServer.SharedState.CommandHistory[$Response.id].Response.result.data = $null # remove base64 string after writing since it is large.
 
         $_
     }

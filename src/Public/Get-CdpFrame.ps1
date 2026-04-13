@@ -26,7 +26,7 @@ function Get-CdpFrame {
         do {
             $Sequence++
 
-            $Command = Get-Page.getFrameTree $CdpPage.TargetInfo.SessionId
+            $Command = Get-Page.getFrameTree $CdpPage.TargetInfo['SessionId']
             $Response = $CdpPage.CdpServer.SendCommand($Command, [WaitForResponse]::Message)
 
             $FramesTree = Get-CdpFrameTree $Response.result.frameTree
