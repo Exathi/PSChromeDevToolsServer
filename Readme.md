@@ -45,8 +45,8 @@ $CdpPage.PageInfo['EvaluateResult'].value
 | Stop-CdpServer | Close browser and dispose pipes, processes, and the runspace pool. |
 | Get-CdpFrame | Tries to find a frame matching the provided url to be used with `Wait-CdpPageLifecycleEvent`. Returns a pscustomobject with `[CdpPage]` and `[CdpFrame]` |
 | Invoke-CdpCommand | Helper function to invoke any cdp command not yet implemented. |
-| Invoke-CdpInputClickElement | Find element with a selector and click element via DOM. |
-| Invoke-CdpInputSendKeys | Sends keys to browser. |
+| Invoke-CdpInputClickElement | Find element with a selector and click element via DOM. If navigation is expected, use `Test-CdpSelector` to wait for the new url/element then follow with `Wait-CdpPageLifecycleEvent` NetworkIdle. |
+| Invoke-CdpInputSendKeys | Sends keys to browser. If navigation is expected, use `Test-CdpSelector` to wait for the new url/element then follow with `Wait-CdpPageLifecycleEvent` NetworkIdle. |
 | Invoke-CdpPageCaptureScreenshot | Takes a screenshot of the current page. |
 | Invoke-CdpPageNavigate | Navigate page and waits for the page to load and the unique javascript context to update for the new page. |
 | Invoke-CdpPagePrintToPdf | Prints page to pdf. |
@@ -54,7 +54,7 @@ $CdpPage.PageInfo['EvaluateResult'].value
 | Invoke-CdpRuntimeEvaluate | Run javascript on browser and return result in `[CdpPage].PageInfo['EvaluateResult']` and the response in `[CdpPage].PageInfo['EvaluateResponse']`. |
 | New-CdpPage | Create new page/tab and returns `[CdpPage]`. |
 | Send-CdpDomFileUpload | Uploads files to the input element found by filterscript. |
-| Test-CdpSelector | Find and return valid selectors for viewing. |
+| Test-CdpSelector | Wait until a valid selector is found or timed out. |
 | Wait-CdpPageLifecycleEvent | `[CdpPage]` or output from `Get-CdpFrame` to wait for a LifecycleEvent. |
 | ConvertTo-Delegate | Used to convert PSMethods to delegates for Windows Powershell. See `Examples\Async.ps1`. |
 

@@ -2,6 +2,7 @@ function Invoke-CdpInputClickElement {
     <#
         .SYNOPSIS
         Finds and clicks with element in the center of the box. Clicks from the top left of the element when $TopLeft is switched on.
+        If this induces navigation, use Test-CdpSelector to wait for the new url then follow with Wait-CdpLifecycleEvent.
         .PARAMETER FilterScript
         The scriptblock that will filter find valid nodes.
         Valid properties are:
@@ -60,10 +61,6 @@ function Invoke-CdpInputClickElement {
         Attemps to brings page to front once before sending click.
         .PARAMETER Delay
         Time in ms between each mouse down and mouse up command.
-        .PARAMETER ExpectNavigation
-        Resets loading state of main page inorder to wait for the next page on click.
-        .PARAMETER Timeout
-        Max time in ms to wait for expected navigation before throwing an error.
         .PARAMETER Selector
         QuerySelectorAll syntax to find the element.
         See Test-CdpSelector
@@ -81,11 +78,7 @@ function Invoke-CdpInputClickElement {
         [switch]$TopLeft,
         [switch]$BringToFront,
         [ValidateRange(0, [int]::MaxValue)]
-        [int]$Delay = 0,
-        [Parameter(ParameterSetName = 'Navigation')]
-        [switch]$ExpectNavigation,
-        [Parameter(ParameterSetName = 'Navigation')]
-        [int]$Timeout = 60000,
+        [int]$Delay = 1,
         [Parameter(Mandatory, ParameterSetName = 'QuerySelectorAll')]
         [string]$Selector
     )
@@ -111,6 +104,16 @@ function Invoke-CdpInputClickElement {
             $CdpServer.SendCommand($DisableDomCommand)
             return $_
         }
+
+        # Need to scroll into view before getting the BoxModel
+        $Command = @{
+            method = 'DOM.scrollIntoViewIfNeeded'
+            sessionId = $SessionId
+            params = @{
+                backendNodeId = $CdpPage.PageInfo['Node'].BackendNodeId
+            }
+        }
+        $null = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
 
         $Command = Get-DOM.getBoxModel $SessionId
         $Command.params = @{
@@ -144,10 +147,6 @@ function Invoke-CdpInputClickElement {
             $null = $CdpServer.SendCommand($CommandFront, [WaitForResponse]::Message)
         }
 
-        if ($PSCmdlet.ParameterSetName.Contains('Navigation')) {
-            $CdpPage.ResetLoadingState()
-        }
-
         $CommandIds = @(
             $CdpServer.SendCommand($Command, [WaitForResponse]::CommandId)
             $Command.params.type = 'mouseReleased'
@@ -160,10 +159,6 @@ function Invoke-CdpInputClickElement {
             $History.CommandReady.Wait()
             $History.CommandReady.Dispose()
             $History.CommandReady = $null
-        }
-
-        if ($PSCmdlet.ParameterSetName.Contains('Navigation')) {
-            $CdpServer.WaitForPageLoad($CdpPage, $Timeout)
         }
 
         $_

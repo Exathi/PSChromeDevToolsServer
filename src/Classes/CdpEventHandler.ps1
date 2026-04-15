@@ -77,6 +77,10 @@ class CdpEventHandler {
         $LifeCycleName = $Response.params.name
 
         switch ($LifeCycleName) {
+            'init' {
+                $Target.LoadingState['NetworkIdle'].Reset()
+                break
+            }
             'networkIdle' {
                 $Target.LoadingState['NetworkIdle'].Set()
                 break

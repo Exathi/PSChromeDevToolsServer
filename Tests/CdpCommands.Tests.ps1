@@ -24,13 +24,13 @@ Describe 'Invoke-CdpNavigate' {
 }
 
 Describe 'Wait-CdpPageLifeCycleEvent' {
-    BeforeEach {
-        Invoke-CdpPageNavigate -CdpPage $CdpPage -Url 'https://www.selenium.dev/selenium/web/single_text_input.html'
-        $CdpPage.TargetInfo['Url'] | Should -Be 'https://www.selenium.dev/selenium/web/single_text_input.html'
-    }
-
     AfterEach {
         $CdpServer.ShowMessageHistory().error | Where-Object { $null -ne $_ } | Should -Be $null
+    }
+
+    It 'sets up testing for Wait-CdpPageLifeCycleEvent' {
+        Invoke-CdpPageNavigate -CdpPage $CdpPage -Url 'https://www.selenium.dev/selenium/web/single_text_input.html'
+        $CdpPage.TargetInfo['Url'] | Should -Be 'https://www.selenium.dev/selenium/web/single_text_input.html'
     }
 
     It 'waited for NetworkIdle' {
@@ -46,7 +46,11 @@ Describe 'Wait-CdpPageLifeCycleEvent' {
 }
 
 Describe 'Invoke-CdpInputSendKeys' {
-    BeforeEach {
+    AfterEach {
+        $CdpServer.ShowMessageHistory().error | Where-Object { $null -ne $_ } | Should -Be $null
+    }
+
+    It 'sets up testing for Test-CdpSelector' {
         Invoke-CdpPageNavigate -CdpPage $CdpPage -Url 'https://www.selenium.dev/selenium/web/single_text_input.html'
         Wait-CdpPageLifeCycleEvent -InputObject $CdpPage -Events NetworkIdle, FirstPaint -Timeout 5000
         $CdpPage.TargetInfo['Url'] | Should -Be 'https://www.selenium.dev/selenium/web/single_text_input.html'
@@ -54,38 +58,36 @@ Describe 'Invoke-CdpInputSendKeys' {
         $CdpPage.LoadingState['FirstPaint'].IsSet | Should -Be $true
     }
 
-    AfterEach {
-        $CdpServer.ShowMessageHistory().error | Where-Object { $null -ne $_ } | Should -Be $null
-    }
-
     It 'sent enter to the textbox and navigated' {
-        Invoke-CdpInputSendKeys -CdpPage $CdpPage -Keys $([char]13) -Delay 1 -ExpectNavigation
-        Wait-CdpPageLifeCycleEvent -InputObject $CdpPage -Events NetworkIdle, FirstPaint -Timeout 5000
+        Invoke-CdpInputSendKeys -CdpPage $CdpPage -Keys $([char]13)
+        $Node = Test-CdpSelector -CdpPage $CdpPage -FilterScript { $_.DocumentURL -eq 'https://www.selenium.dev/selenium/web/single_text_input.html?#' }
         $CdpPage.TargetInfo['Url'] | Should -Be 'https://www.selenium.dev/selenium/web/single_text_input.html?#'
+        $Node.DocumentURL | Should -Be 'https://www.selenium.dev/selenium/web/single_text_input.html?#'
+        Wait-CdpPageLifeCycleEvent -InputObject $CdpPage -Events NetworkIdle, FirstPaint -Timeout 5000
     }
 
     It 'sent keys to textbox' {
-        Invoke-CdpInputSendKeys -CdpPage $CdpPage -Keys 'PSChromeDevToolsServer' -Delay 1
+        Invoke-CdpInputSendKeys -CdpPage $CdpPage -Keys 'PSChromeDevToolsServer'
         $Node = Test-CdpSelector -CdpPage $CdpPage -FilterScript { $_.NodeValue -eq 'PSChromeDevToolsServer' }
         $Node.NodeValue | Should -Be 'PSChromeDevToolsServer'
     }
 }
 
 Describe 'Test-CdpSelector' {
-    BeforeEach {
+    AfterEach {
+        $CdpServer.ShowMessageHistory().error | Where-Object { $null -ne $_ } | Should -Be $null
+    }
+
+    It 'sets up testing for Test-CdpSelector' {
         Invoke-CdpPageNavigate -CdpPage $CdpPage -Url 'https://www.selenium.dev/selenium/web/single_text_input.html'
         Wait-CdpPageLifeCycleEvent -InputObject $CdpPage -Events NetworkIdle, FirstPaint -Timeout 5000
         $CdpPage.TargetInfo['Url'] | Should -Be 'https://www.selenium.dev/selenium/web/single_text_input.html'
         $CdpPage.LoadingState['NetworkIdle'].IsSet | Should -Be $true
         $CdpPage.LoadingState['FirstPaint'].IsSet | Should -Be $true
 
-        Invoke-CdpInputSendKeys -CdpPage $CdpPage -Keys 'PSChromeDevToolsServer' -Delay 1
+        Invoke-CdpInputSendKeys -CdpPage $CdpPage -Keys 'PSChromeDevToolsServer'
         $Node = Test-CdpSelector -CdpPage $CdpPage -FilterScript { $_.NodeValue -eq 'PSChromeDevToolsServer' }
         $Node.NodeValue | Should -Be 'PSChromeDevToolsServer'
-    }
-
-    AfterEach {
-        $CdpServer.ShowMessageHistory().error | Where-Object { $null -ne $_ } | Should -Be $null
     }
 
     It 'found shadowroot keys' {
@@ -103,51 +105,57 @@ Describe 'Test-CdpSelector' {
         $Node = Test-CdpSelector -CdpPage $CdpPage -FilterScript { $_.NodeName -eq 'input' }
         $Node.NodeName | Should -Be 'input'
     }
+
+    It 'throws when a node is not found after timeout' {
+        { Test-CdpSelector -CdpPage $CdpPage -FilterScript { $_.NodeName -eq 'invalid node name' } -Timeout 1 } | Should -Throw
+    }
 }
 
 Describe 'Invoke-CdpInputClickElement' {
-    BeforeEach {
+    AfterEach {
+        $CdpServer.ShowMessageHistory().error | Where-Object { $null -ne $_ } | Should -Be $null
+    }
+
+    It 'sets up testing for Invoke-CdpInputClickElement' {
         Invoke-CdpPageNavigate -CdpPage $CdpPage -Url 'https://www.selenium.dev/selenium/web/click_tests/html5_submit_buttons.html'
         Wait-CdpPageLifeCycleEvent -InputObject $CdpPage -Events NetworkIdle, FirstPaint -Timeout 5000
         $CdpPage.TargetInfo['Url'] | Should -Be 'https://www.selenium.dev/selenium/web/click_tests/html5_submit_buttons.html'
         $CdpPage.LoadingState['NetworkIdle'].IsSet | Should -Be $true
         $CdpPage.LoadingState['FirstPaint'].IsSet | Should -Be $true
 
-        Invoke-CdpInputClickElement -CdpPage $CdpPage -FilterScript { $_.Attributes.Name -eq 'id' -and $_.Attributes.Value -eq 'name' } -Click 1 -Delay 1
-        Invoke-CdpInputSendKeys -CdpPage $CdpPage -Keys 'PSChromeDevToolsServer' -Delay 1
+        Invoke-CdpInputClickElement -CdpPage $CdpPage -FilterScript { $_.Attributes.Name -eq 'id' -and $_.Attributes.Value -eq 'name' } -Click 1
+        Invoke-CdpInputSendKeys -CdpPage $CdpPage -Keys 'PSChromeDevToolsServer'
         $Node = Test-CdpSelector -CdpPage $CdpPage -FilterScript { $_.NodeValue -eq 'PSChromeDevToolsServer' }
         $Node.NodeValue | Should -Be 'PSChromeDevToolsServer'
     }
 
-    AfterEach {
-        $CdpServer.ShowMessageHistory().error | Where-Object { $null -ne $_ } | Should -Be $null
-    }
-
     It 'triple clicked and selected all text and replaced the text' {
-        Invoke-CdpInputClickElement -CdpPage $CdpPage -FilterScript { $_.NodeValue -eq 'PSChromeDevToolsServer' } -Click 3 -Delay 1 -TopLeft
-        Invoke-CdpInputSendKeys -CdpPage $CdpPage -Keys 'ReplacedText!' -Delay 1
+        Invoke-CdpInputClickElement -CdpPage $CdpPage -FilterScript { $_.NodeValue -eq 'PSChromeDevToolsServer' } -Click 3 -TopLeft
+        Invoke-CdpInputSendKeys -CdpPage $CdpPage -Keys 'ReplacedText!'
         $Node = Test-CdpSelector -CdpPage $CdpPage -FilterScript { $_.NodeValue -eq 'ReplacedText!' }
         $Node.NodeValue | Should -Be 'ReplacedText!'
     }
 
     It 'clicked submit and navigated' {
-        Invoke-CdpInputClickElement -CdpPage $CdpPage -FilterScript { $_.NodeValue -eq 'Spanned Submit' } -Click 1 -Delay 1 -ExpectNavigation
+        Invoke-CdpInputClickElement -CdpPage $CdpPage -FilterScript { $_.NodeValue -eq 'Spanned Submit' } -Click 1
+        $Node = Test-CdpSelector -CdpPage $CdpPage -FilterScript { $_.DocumentURL -eq 'https://www.selenium.dev/selenium/web/click_tests/submitted_page.html?name=ReplacedText%21' }
+        $CdpPage.TargetInfo['Url'] | Should -Be 'https://www.selenium.dev/selenium/web/click_tests/submitted_page.html?name=ReplacedText%21'
+        $Node.DocumentURL | Should -Be 'https://www.selenium.dev/selenium/web/click_tests/submitted_page.html?name=ReplacedText%21'
         Wait-CdpPageLifeCycleEvent -InputObject $CdpPage -Events NetworkIdle, FirstPaint -Timeout 5000
-        $CdpPage.TargetInfo['Url'] | Should -Be 'https://www.selenium.dev/selenium/web/click_tests/submitted_page.html?name=PSChromeDevToolsServer'
     }
 }
 
 Describe 'Invoke-CdpRuntimeEvaluate' {
-    BeforeEach {
+    AfterEach {
+        $CdpServer.ShowMessageHistory().error | Where-Object { $null -ne $_ } | Should -Be $null
+    }
+
+    It 'sets up testing for Invoke-CdpRuntimeEvaluate' {
         Invoke-CdpPageNavigate -CdpPage $CdpPage -Url 'https://www.selenium.dev/selenium/web/click_frames.html'
         Wait-CdpPageLifeCycleEvent -InputObject $CdpPage -Events NetworkIdle -Timeout 5000
         $CdpPage.LoadingState['NetworkIdle'].IsSet | Should -Be $true
         $CdpPage.TargetInfo['Url'] | Should -Be 'https://www.selenium.dev/selenium/web/click_frames.html'
         $null = $CdpPage | Get-CdpFrame -Url 'https://www.selenium.dev/selenium/web/click_source.html' | Wait-CdpPageLifeCycleEvent -Events NetworkIdle, FirstPaint -Timeout 5000
-    }
-
-    AfterEach {
-        $CdpServer.ShowMessageHistory().error | Where-Object { $null -ne $_ } | Should -Be $null
     }
 
     It 'can run javascript' {
