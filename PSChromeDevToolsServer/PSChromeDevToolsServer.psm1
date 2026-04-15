@@ -1231,7 +1231,7 @@ function Invoke-CdpInputClickElement {
             $History.CommandReady = $null
         }
 
-        $_
+        if ($_) { $_ }
     }
 }
 
@@ -1284,7 +1284,7 @@ function Invoke-CdpInputSendKeys {
             $History.CommandReady = $null
         }
 
-        $_
+        if ($_) { $_ }
     }
 }
 
@@ -1362,7 +1362,7 @@ function Invoke-CdpPageCaptureScreenshot {
         [System.IO.File]::WriteAllBytes($FilePath, [System.Convert]::FromBase64String($Response.result.data))
         $CdpServer.SharedState.CommandHistory[$Response.id].Response.result.data = $null # remove base64 string after writing since it is large.
 
-        $_
+        if ($_) { $_ }
     }
 }
 
@@ -1399,7 +1399,7 @@ function Invoke-CdpPageNavigate {
 
         $CdpServer.WaitForPageLoad($CdpPage, $Timeout)
 
-        $_
+        if ($_) { $_ }
     }
 }
 
@@ -1497,7 +1497,7 @@ function Invoke-CdpPagePrintToPdf {
         [System.IO.File]::WriteAllBytes($FilePath, [System.Convert]::FromBase64String($Response.result.data))
         $CdpServer.SharedState.CommandHistory[$Response.id].Response.result.data = $null # remove base64 string after writing since it is large.
 
-        $_
+        if ($_) { $_ }
     }
 }
 
@@ -1522,7 +1522,7 @@ function Invoke-CdpRuntimeAddBinding {
         $Command = Get-Runtime.addBinding $SessionId $Name
         $CdpServer.SendCommand($Command)
 
-        $_
+        if ($_) { $_ }
     }
 }
 
@@ -1593,7 +1593,7 @@ awaitMultiplePromises();
         $CdpPage.PageInfo['EvaluateResult'] = $Response.result.result
         $CdpPage.PageInfo['EvaluateResponse'] = $Response
 
-        $_
+        if ($_) { $_ }
     }
 }
 
@@ -1678,7 +1678,8 @@ function Send-CdpDomUploadFile {
         $Command = Get-Dom.setFileInputFiles $CdpPage.TargetInfo['SessionId'] $Files $Node.BackendNodeId
         $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
         if ($Response.error) { throw ('Could not upload file: {0}' -f $Response.error) }
-        $_
+
+        if ($_) { $_ }
     }
 }
 
