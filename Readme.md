@@ -1,12 +1,12 @@
 # PSChromeDevToolsServer - PowerShell Browser Automation
-[![Static Badge](https://img.shields.io/badge/Powershell%20Gallery-0.5.3-blue)](https://www.powershellgallery.com/packages/PSChromeDevToolsServer/)
+[![Static Badge](https://img.shields.io/badge/Powershell%20Gallery-0.6.0-blue)](https://www.powershellgallery.com/packages/PSChromeDevToolsServer/)
 
 
 Automate any Chromium browser with Windows PowerShell and Pwsh with `--remote-debugging-pipe` and `--remote-debugging-io-pipe`. Still couldn't find any examples in 2026 that made use of these switches with dotnet without tapping into WinApi functions.
 
  * Zero Dependencies: Pure PowerShell and .NET.
  * This is NOT a wrapper around playwright/puppeteer/selenium.
- * Only a small subset of Cdp commands are currently implemented.
+ * Only a small subset of CDP commands are currently implemented.
 
 Two goals in making this:
 
@@ -52,10 +52,10 @@ $CdpPage.PageInfo['EvaluateResult'].value
 | Invoke-CdpPagePrintToPdf | Prints page to pdf. |
 | Invoke-CdpRuntimeAddBinding | Add binding object to enable browser communication to run provided callbacks in `[CdpEventHandler]`. |
 | Invoke-CdpRuntimeEvaluate | Run javascript on browser and return result in `[CdpPage].PageInfo['EvaluateResult']` and the response in `[CdpPage].PageInfo['EvaluateResponse']`. |
-| New-CdpPage | Create new page/tab and returns `[CdpPage]`. |
-| Send-CdpDomFileUpload | Uploads files to the input element found by filterscript. |
+| New-CdpPage | Create new tab and returns `[CdpPage]`. |
+| Send-CdpDomFileUpload | Uploads files to the input element found by filterscript or selector. |
 | Test-CdpSelector | Wait until a valid selector is found or timed out. |
-| Wait-CdpPageLifecycleEvent | `[CdpPage]` or output from `Get-CdpFrame` to wait for a LifecycleEvent. |
+| Wait-CdpPageLifecycleEvent | Requires a `[CdpPage]` or output from `Get-CdpFrame` to wait for a LifecycleEvent. |
 | ConvertTo-Delegate | Used to convert PSMethods to delegates for Windows Powershell. See `Examples\Async.ps1`. |
 
 ## Classes

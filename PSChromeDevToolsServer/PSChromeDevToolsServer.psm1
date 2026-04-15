@@ -177,6 +177,10 @@ class CdpEventHandler {
         $LifeCycleName = $Response.params.name
 
         switch ($LifeCycleName) {
+            'init' {
+                $Target.LoadingState['NetworkIdle'].Reset()
+                break
+            }
             'networkIdle' {
                 $Target.LoadingState['NetworkIdle'].Set()
                 break
@@ -480,6 +484,8 @@ class CdpServer {
     }
 
     [object]SendCommand([hashtable]$Command, [WaitForResponse]$WaitForResponse) {
+        if (!$this.SharedState.IO.PipeWriter.IsConnected) { throw 'Server is disconnected.' }
+
         # This should be the only place where $this.SharedState.CommandId is incremented.
         $CommandId = $this.SharedState.AddOrUpdate('CommandId', 1, { param($Key, $OldValue) $OldValue + 1 })
 
@@ -703,6 +709,17 @@ function Get-DOM.getDocument {
         params = @{
             depth = -1
             pierce = $true
+        }
+    }
+}
+function Get-DOM.setFileInputFiles {
+    param($SessionId, $Files, $BackendNodeId)
+    @{
+        method = 'DOM.setFileInputFiles'
+        sessionId = $SessionId
+        params = @{
+            files = @($Files)
+            backendNodeId = $BackendNodeId
         }
     }
 }
@@ -986,7 +1003,7 @@ function Get-CdpFrame {
         do {
             $Sequence++
 
-            $Command = Get-Page.getFrameTree $CdpPage.TargetInfo.SessionId
+            $Command = Get-Page.getFrameTree $CdpPage.TargetInfo['SessionId']
             $Response = $CdpPage.CdpServer.SendCommand($Command, [WaitForResponse]::Message)
 
             $FramesTree = Get-CdpFrameTree $Response.result.frameTree
@@ -1055,6 +1072,7 @@ function Invoke-CdpInputClickElement {
     <#
         .SYNOPSIS
         Finds and clicks with element in the center of the box. Clicks from the top left of the element when $TopLeft is switched on.
+        If this induces navigation, use Test-CdpSelector to wait for the new url then follow with Wait-CdpLifecycleEvent.
         .PARAMETER FilterScript
         The scriptblock that will filter find valid nodes.
         Valid properties are:
@@ -1099,7 +1117,8 @@ function Invoke-CdpInputClickElement {
         }
 
         .PARAMETER Index
-        The nth number of the Nodes found by FilterScript
+        The nth number of the Nodes found by FilterScript/Selector.
+        Default to the first one if more than one is returned unless specified.
         .PARAMETER Click
         Number of times to left click the mouse
         .PARAMETER OffsetX
@@ -1112,16 +1131,15 @@ function Invoke-CdpInputClickElement {
         Attemps to brings page to front once before sending click.
         .PARAMETER Delay
         Time in ms between each mouse down and mouse up command.
-        .PARAMETER ExpectNavigation
-        Resets loading state of main page inorder to wait for the next page on click.
-        .PARAMETER Timeout
-        Max time in ms to wait for expected navigation before throwing an error.
+        .PARAMETER Selector
+        QuerySelectorAll syntax to find the element.
+        See Test-CdpSelector
     #>
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
         [CdpPage]$CdpPage,
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory, ParameterSetName = 'Scriptblock')]
         [scriptblock]$FilterScript,
         [int]$Index = 0,
         [int]$Click = 0,
@@ -1130,21 +1148,42 @@ function Invoke-CdpInputClickElement {
         [switch]$TopLeft,
         [switch]$BringToFront,
         [ValidateRange(0, [int]::MaxValue)]
-        [int]$Delay = 0,
-        [Parameter(ParameterSetName = 'Navigation')]
-        [switch]$ExpectNavigation,
-        [Parameter(ParameterSetName = 'Navigation')]
-        [int]$Timeout = 60000
+        [int]$Delay = 1,
+        [Parameter(Mandatory, ParameterSetName = 'QuerySelectorAll')]
+        [string]$Selector
     )
 
     process {
         $CdpServer = $CdpPage.CdpServer
         $SessionId = $CdpPage.TargetInfo['SessionId']
 
-        $CdpPage.PageInfo['Node'] = Test-CdpSelector -CdpPage $CdpPage -FilterScript $FilterScript -Index $Index -EnableDomEvents
-        if ($CdpPage.PageInfo['Node'].nodeType -ne 1 -and $CdpPage.PageInfo['Node'].nodeType -ne 3) { throw ('Node is not an element or text. {0}' -f $CdpPage.PageInfo['Node'].nodeType) }
+        $DisableDomCommand = Get-DOM.disable $SessionId
 
-        if ($Click -le 0) { return $_ }
+        $CdpPage.PageInfo['Node'] = if ($FilterScript) {
+            Test-CdpSelector -CdpPage $CdpPage -FilterScript $FilterScript -Index $Index -EnableDomEvents
+        } else {
+            Test-CdpSelector -CdpPage $CdpPage -Selector $Selector -Index $Index -EnableDomEvents
+        }
+
+        if ($CdpPage.PageInfo['Node'].nodeType -ne 1 -and $CdpPage.PageInfo['Node'].nodeType -ne 3) {
+            $CdpServer.SendCommand($DisableDomCommand)
+            throw ('Node is not an element or text. {0}' -f $CdpPage.PageInfo['Node'].nodeType)
+        }
+
+        if ($Click -le 0) {
+            $CdpServer.SendCommand($DisableDomCommand)
+            return $_
+        }
+
+        # Need to scroll into view before getting the BoxModel
+        $Command = @{
+            method = 'DOM.scrollIntoViewIfNeeded'
+            sessionId = $SessionId
+            params = @{
+                backendNodeId = $CdpPage.PageInfo['Node'].BackendNodeId
+            }
+        }
+        $null = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
 
         $Command = Get-DOM.getBoxModel $SessionId
         $Command.params = @{
@@ -1152,11 +1191,13 @@ function Invoke-CdpInputClickElement {
         }
         $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
 
-        if ($Response.error) { throw 'Could not get box model. {0}' -f "$($Response.error)" }
+        if ($Response.error) {
+            $CdpServer.SendCommand($DisableDomCommand)
+            throw 'Could not get box model. {0}' -f "$($Response.error)"
+        }
 
         # Disable dom events now that we don't need nodes anymore.
-        $Command = Get-DOM.disable $CdpPage.TargetInfo.SessionId
-        $CdpServer.SendCommand($Command)
+        $CdpServer.SendCommand($DisableDomCommand)
 
         $CdpPage.PageInfo['BoxModel'] = $Response.result.model
 
@@ -1176,10 +1217,6 @@ function Invoke-CdpInputClickElement {
             $null = $CdpServer.SendCommand($CommandFront, [WaitForResponse]::Message)
         }
 
-        if ($PSCmdlet.ParameterSetName.Contains('Navigation')) {
-            $CdpPage.ResetLoadingState()
-        }
-
         $CommandIds = @(
             $CdpServer.SendCommand($Command, [WaitForResponse]::CommandId)
             $Command.params.type = 'mouseReleased'
@@ -1194,10 +1231,6 @@ function Invoke-CdpInputClickElement {
             $History.CommandReady = $null
         }
 
-        if ($PSCmdlet.ParameterSetName.Contains('Navigation')) {
-            $CdpServer.WaitForPageLoad($CdpPage, $Timeout)
-        }
-
         $_
     }
 }
@@ -1205,7 +1238,8 @@ function Invoke-CdpInputClickElement {
 function Invoke-CdpInputSendKeys {
     <#
         .SYNOPSIS
-        Sends keys to a session
+        Sends keys to a session.
+        If this induces navigation, use Test-CdpSelector to wait for the new url then follow with Wait-CdpLifecycleEvent.
         .PARAMETER Keys
         String to send.
         Include "$([char]13)" to press enter at any given point in the string.
@@ -1215,10 +1249,6 @@ function Invoke-CdpInputSendKeys {
         Attemps to brings page to front once before sending keys.
         .PARAMETER Delay
         Time in ms between sending each key command.
-        .PARAMETER ExpectNavigation
-        Resets loading state of main page inorder to wait for the next page on click.
-        .PARAMETER Timeout
-        Max time in ms to wait for expected navigation before throwing an error.
     #>
     [CmdletBinding()]
     param (
@@ -1228,11 +1258,7 @@ function Invoke-CdpInputSendKeys {
         [string]$Keys,
         [switch]$BringToFront,
         [ValidateRange(0, [int]::MaxValue)]
-        [int]$Delay = 0,
-        [Parameter(ParameterSetName = 'Navigation')]
-        [switch]$ExpectNavigation,
-        [Parameter(ParameterSetName = 'Navigation')]
-        [int]$Timeout = 60000
+        [int]$Delay = 1
     )
 
     process {
@@ -1243,10 +1269,6 @@ function Invoke-CdpInputSendKeys {
         if ($BringToFront) {
             $CommandFront = Get-Page.bringToFront $SessionId
             $null = $CdpServer.SendCommand($CommandFront, [WaitForResponse]::Message)
-        }
-
-        if ($PSCmdlet.ParameterSetName.Contains('Navigation')) {
-            $CdpPage.ResetLoadingState()
         }
 
         $CommandIds = foreach ($Char in $Keys[0..($Keys.Length - 1)]) {
@@ -1262,9 +1284,83 @@ function Invoke-CdpInputSendKeys {
             $History.CommandReady = $null
         }
 
-        if ($PSCmdlet.ParameterSetName.Contains('Navigation')) {
-            $CdpServer.WaitForPageLoad($CdpPage, $Timeout)
+        $_
+    }
+}
+
+function Invoke-CdpPageCaptureScreenshot {
+    <#
+        .SYNOPSIS
+        Creates a screenshot of the current page. The browser will be brought to front for the screenshot.
+        .PARAMETER FilePath
+        The fullname of the screenshot file.
+        .PARAMETER Format
+        Supports 'jpeg', 'png', or 'webp'
+        .PARAMETER X
+        Pixel X axis to start from.
+        .PARAMETER Y
+        Pixel Y axis to start from.
+        .PARAMETER Width
+        Width from Pixel X.
+        .PARAMETER Height
+        Height from Pixel Y.
+        .PARAMETER Scale
+        Scale of the screenshot.
+        .PARAMETER BringToFront
+        If the browser is minimized, the command will hang until it is not minimized. This switch will automatically bring the browser to front to avoid hanging.
+    #>
+    [CmdletBinding(DefaultParameterSetName = 'CommonSize')]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [CdpPage]$CdpPage,
+        [string]$FilePath,
+        [ValidateSet('jpeg', 'png', 'webp')]
+        [string]$Format = 'png',
+        [Parameter(ParameterSetName = 'Viewport')]
+        [int]$X,
+        [Parameter(ParameterSetName = 'Viewport')]
+        [int]$Y,
+        [Parameter(ParameterSetName = 'Viewport')]
+        [int]$Width,
+        [Parameter(ParameterSetName = 'Viewport')]
+        [int]$Height,
+        [Parameter(ParameterSetName = 'Viewport')]
+        [ValidateRange(0.1, 2)]
+        [decimal]$Scale = 1,
+        [switch]$BringToFront
+    )
+
+    process {
+        $CdpServer = $CdpPage.CdpServer
+        $Command = @{
+            method = 'Page.captureScreenshot'
+            sessionId = $CdpPage.TargetInfo['SessionId']
         }
+
+        if ($PSCmdlet.ParameterSetName.Contains('Viewport')) {
+            $Command.params = @{
+                format = $Format
+                clip = @{
+                    x = $X
+                    y = $Y
+                    width = $Width
+                    height = $Height
+                    scale = $Scale
+                }
+            }
+        } else {
+            $Command.params = @{format = $Format }
+        }
+
+        if ($BringToFront) {
+            $CommandFront = Get-Page.bringToFront $CdpPage.TargetInfo['SessionId']
+            $null = $CdpServer.SendCommand($CommandFront, [WaitForResponse]::Message)
+        }
+
+        $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+        if ($Response.error) { throw ('Could not screenshot. {0}' -f $Response.error) }
+        [System.IO.File]::WriteAllBytes($FilePath, [System.Convert]::FromBase64String($Response.result.data))
+        $CdpServer.SharedState.CommandHistory[$Response.id].Response.result.data = $null # remove base64 string after writing since it is large.
 
         $_
     }
@@ -1302,6 +1398,104 @@ function Invoke-CdpPageNavigate {
         $null = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
 
         $CdpServer.WaitForPageLoad($CdpPage, $Timeout)
+
+        $_
+    }
+}
+
+function Invoke-CdpPagePrintToPdf {
+    <#
+        .SYNOPSIS
+        Prints page to pdf.
+        https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-printToPDF
+        .PARAMETER FilePath
+        The fullname of the pdf.
+        .PARAMETER PageRanges
+        Paper ranges to print, one based, e.g., '1-5, 8, 11-13'.
+        Pages are printed in the document order, not in the order specified, and no more than once.
+        Defaults to empty string, which implies the entire document is printed.
+        The page numbers are quietly capped to actual page count of the document, and ranges beyond the end of the document are ignored.
+        If this results in no pages to print, an error is reported.
+        It is an error to specify a range with start greater than end.
+        .PARAMETER HeaderTemplate
+        HTML template for the print header. Should be valid HTML markup with following classes used to inject printing values into them:
+
+        date: formatted print date
+        title: document title
+        url: document location
+        pageNumber: current page number
+        totalPages: total pages in the document
+
+        For example, <span class=title></span> would generate span containing the title.
+        .PARAMETER FooterTemplate
+        See HeaderTemplate.
+    #>
+    [CmdletBinding(DefaultParameterSetName = 'CommonSize')]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [CdpPage]$CdpPage,
+        [string]$FilePath,
+        [bool]$Landscape,
+        [bool]$DisplayHeaderFooter,
+        [bool]$PrintBackground = $true,
+        [ValidateRange(0.1, 2)]
+        [decimal]$Scale = 1,
+        [Parameter(ParameterSetName = 'CommonSize')]
+        [ValidateSet('A0', 'A1', 'A2', 'A3', 'A4', 'A5', 'Letter', 'Legal')]
+        [string]$PaperSize = 'Letter',
+        [Parameter(ParameterSetName = 'UserSize')]
+        [decimal]$PaperWidth,
+        [Parameter(ParameterSetName = 'UserSize')]
+        [decimal]$PaperHeight,
+        [decimal]$MarginTop,
+        [decimal]$MarginBottom,
+        [decimal]$MarginLeft,
+        [decimal]$MarginRight,
+        [string[]]$PageRanges,
+        [string]$HeaderTemplate,
+        [string]$FooterTemplate
+    )
+
+    begin {
+        $Width, $Height = switch ($PaperSize) {
+            'A0' { 33.1; 46.8 }
+            'A1' { 23.4; 33.1 }
+            'A2' { 16.5; 23.4 }
+            'A3' { 11.7; 16.5 }
+            'A4' { 8.3; 11.7 }
+            'A5' { 5.8; 8.3 }
+            'Letter' { 8.5; 11 }
+            'Legal' { 8.5; 14 }
+        }
+    }
+
+    process {
+        $CdpServer = $CdpPage.CdpServer
+        $Command = @{
+            method = 'Page.printToPDF'
+            sessionId = $CdpPage.TargetInfo['SessionId']
+        }
+
+        $Command.params = @{
+            landscape = $Landscape
+            displayHeaderFooter = $DisplayHeaderFooter
+            printBackground = $PrintBackground
+            scale = $Scale
+            paperWidth = if ($Width) { $Width } else { $PaperWidth }
+            paperHeight = if ($Height) { $Height } else { $PaperHeight }
+            marginTop = $MarginTop
+            marginBottom = $MarginBottom
+            marginLeft = $MarginLeft
+            marginRight = $MarginRight
+            pageRanges = if ($PageRanges) { @($PageRanges) } else { '' }
+            headerTemplate = $HeaderTemplate
+            footerTemplate = $FooterTemplate
+        }
+
+        $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+        if ($Response.error) { throw ('Did not print. {0}' -f $Response.error) }
+        [System.IO.File]::WriteAllBytes($FilePath, [System.Convert]::FromBase64String($Response.result.data))
+        $CdpServer.SharedState.CommandHistory[$Response.id].Response.result.data = $null # remove base64 string after writing since it is large.
 
         $_
     }
@@ -1447,6 +1641,47 @@ function New-CdpPage {
     }
 }
 
+function Send-CdpDomUploadFile {
+    <#
+        .SYNOPSIS
+        Bypasses file upload dialog by providing the file path to upload in the found input element by FilterScript.
+        .PARAMETER Files
+        Fullname of files to upload
+        .PARAMETER FilterScript
+        The scriptblock that will filter find valid nodes.
+        See Test-CdpSelector
+        .PARAMETER Selector
+        QuerySelectorAll syntax to find the element.
+        See Test-CdpSelector
+    #>
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [CdpPage]$CdpPage,
+        [string[]]$Files,
+        [Parameter(Mandatory, ParameterSetName = 'Scriptblock')]
+        [scriptblock]$FilterScript,
+        [Parameter(Mandatory, ParameterSetName = 'QuerySelectorAll')]
+        [string]$Selector,
+        [int]$Index = 0
+    )
+
+    process {
+        $CdpServer = $CdpPage.CdpServer
+
+        $Node = if ($FilterScript) {
+            Test-CdpSelector -CdpPage $CdpPage -FilterScript $FilterScript -Index $Index -EnableDomEvents
+        } else {
+            Test-CdpSelector -CdpPage $CdpPage -Selector $Selector -Index $Index -EnableDomEvents
+        }
+
+        $Command = Get-Dom.setFileInputFiles $CdpPage.TargetInfo['SessionId'] $Files $Node.BackendNodeId
+        $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+        if ($Response.error) { throw ('Could not upload file: {0}' -f $Response.error) }
+        $_
+    }
+}
+
 function Start-CdpServer {
     <#
         .SYNOPSIS
@@ -1497,7 +1732,6 @@ function Start-CdpServer {
         [ValidateScript({ $_ -ge 0 })]
         [int]$AdditionalThreads = ([int]$env:NUMBER_OF_PROCESSORS * 2),
         [hashtable]$Callbacks,
-        [switch]$DisableDefaultEvents,
         [object]$StreamOutput
     )
 
@@ -1529,9 +1763,7 @@ function Start-CdpServer {
     $CdpServer.StartMessageProcessor()
     $CdpServer.StartMessageWriter()
 
-    if (!$DisableDefaultEvents) {
-        $CdpServer.EnableDefaultEvents()
-    }
+    $CdpServer.EnableDefaultEvents()
 
     # Should only be used at startup since there is only one page
     do {
@@ -1570,6 +1802,7 @@ function Test-CdpSelector {
     <#
         .SYNOPSIS
         Returns nodes for exploring if selectors are found.
+        Will poll until found or $Timeout is reached.
         .PARAMETER FilterScript
         The scriptblock that will filter find valid nodes.
         Valid properties are:
@@ -1620,17 +1853,27 @@ function Test-CdpSelector {
         Returns all found nodes for viewing
 
         .PARAMETER EnableDomEvents
-        Keeps DOM events active
+        Keeps DOM events active. Mainly for internal use.
+
+        .PARAMETER Selector
+        QuerySelectorAll syntax to find the element.
+        '#id'
+        '.class'
+        '[id=id]'
+        'div > div'
     #>
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
         [object]$CdpPage,
+        [Parameter(Mandatory, ParameterSetName = 'Scriptblock')]
         [scriptblock]$FilterScript,
         [int]$Index = 0,
         [switch]$All,
         [switch]$EnableDomEvents,
-        [int]$Timeout = 5000
+        [int]$Timeout = 5000,
+        [Parameter(Mandatory, ParameterSetName = 'QuerySelectorAll')]
+        [string]$Selector
     )
 
     begin {
@@ -1640,29 +1883,51 @@ function Test-CdpSelector {
 
     process {
         $CdpServer = $CdpPage.CdpServer
-        $Command = Get-DOM.getDocument $CdpPage.TargetInfo.SessionId
+        $DocumentCommand = Get-DOM.getDocument $CdpPage.TargetInfo['SessionId']
 
         $EndTime = (Get-Date).AddMilliseconds($Timeout)
 
         while ($true) {
             $Sequence++
 
-            $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
-            $Root = $Response.result.root
-            $Document = ConvertTo-FlatNode -Node $Root
-            $Nodes = $Document | Where-Object { $_.TopParentName -ne 'HEAD' } | Where-Object -FilterScript $FilterScript
+            $Response = $CdpServer.SendCommand($DocumentCommand, [WaitForResponse]::Message)
+
+            if ($PSCmdlet.ParameterSetName.Contains('Scriptblock')) {
+                $Root = $Response.result.root
+                $Document = ConvertTo-FlatNode -Node $Root
+                $Nodes = $Document | Where-Object { $_.TopParentName -ne 'HEAD' } | Where-Object -FilterScript $FilterScript
+            } else {
+                $Command = @{
+                    method = 'DOM.querySelectorAll'
+                    sessionId = $CdpPage.TargetInfo['SessionId']
+                    params = @{
+                        nodeId = $Response.result.root.nodeId
+                        selector = $Selector
+                    }
+                }
+                $QuerySelectorResponse = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+                if ($QuerySelectorResponse.error) { throw ('Invalid selector: {0}' -f $QuerySelectorResponse.error) }
+
+                $Nodes = foreach ($NodeId in $QuerySelectorResponse.result.nodeIds) {
+                    $Command = Get-DOM.describeNode $CdpPage.TargetInfo['SessionId']
+                    $Command.params.nodeId = $NodeId
+                    $DescribeResponse = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
+                    ConvertTo-FlatNode -Node $DescribeResponse.result.node
+                }
+            }
 
             if ($Nodes) {
                 break
             } elseif (($EndTime - (Get-Date)).TotalMilliseconds -lt 0) {
-                throw ('No node found in allotted time with FilterScript: {0}' -f $FilterScript)
+                $SelectorValue = if ($FilterScript) { $FilterScript } else { $Selector }
+                throw ('No node found in allotted time with: {0}' -f $SelectorValue)
             } else {
                 Start-Sleep -Milliseconds ([math]::Min(($PollInterval * $Sequence), 1000))
             }
         }
 
         if (!$EnableDomEvents) {
-            $Command = Get-DOM.disable $CdpPage.TargetInfo.SessionId
+            $Command = Get-DOM.disable $CdpPage.TargetInfo['SessionId']
             $CdpServer.SendCommand($Command)
         }
 
