@@ -92,6 +92,6 @@ function Invoke-CdpPagePrintToPdf {
         [System.IO.File]::WriteAllBytes($FilePath, [System.Convert]::FromBase64String($Response.result.data))
         $CdpServer.SharedState.CommandHistory[$Response.id].Response.result.data = $null # remove base64 string after writing since it is large.
 
-        $_
+        if ($_) { $_ }
     }
 }

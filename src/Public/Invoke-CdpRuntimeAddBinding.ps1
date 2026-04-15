@@ -19,6 +19,6 @@ function Invoke-CdpRuntimeAddBinding {
         $Command = Get-Runtime.addBinding $SessionId $Name
         $CdpServer.SendCommand($Command)
 
-        $_
+        if ($_) { $_ }
     }
 }

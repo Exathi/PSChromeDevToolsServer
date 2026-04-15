@@ -161,6 +161,6 @@ function Invoke-CdpInputClickElement {
             $History.CommandReady = $null
         }
 
-        $_
+        if ($_) { $_ }
     }
 }

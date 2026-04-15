@@ -31,6 +31,6 @@ function Invoke-CdpPageNavigate {
 
         $CdpServer.WaitForPageLoad($CdpPage, $Timeout)
 
-        $_
+        if ($_) { $_ }
     }
 }

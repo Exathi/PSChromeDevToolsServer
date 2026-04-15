@@ -65,6 +65,6 @@ awaitMultiplePromises();
         $CdpPage.PageInfo['EvaluateResult'] = $Response.result.result
         $CdpPage.PageInfo['EvaluateResponse'] = $Response
 
-        $_
+        if ($_) { $_ }
     }
 }

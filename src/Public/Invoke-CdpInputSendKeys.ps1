@@ -47,6 +47,6 @@ function Invoke-CdpInputSendKeys {
             $History.CommandReady = $null
         }
 
-        $_
+        if ($_) { $_ }
     }
 }

@@ -35,6 +35,7 @@ function Send-CdpDomUploadFile {
         $Command = Get-Dom.setFileInputFiles $CdpPage.TargetInfo['SessionId'] $Files $Node.BackendNodeId
         $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
         if ($Response.error) { throw ('Could not upload file: {0}' -f $Response.error) }
-        $_
+
+        if ($_) { $_ }
     }
 }
