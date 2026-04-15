@@ -46,7 +46,8 @@ function Invoke-CdpInputClickElement {
         }
 
         .PARAMETER Index
-        The nth number of the Nodes found by FilterScript
+        The nth number of the Nodes found by FilterScript/Selector.
+        Default to the first one if more than one is returned unless specified.
         .PARAMETER Click
         Number of times to left click the mouse
         .PARAMETER OffsetX
@@ -63,12 +64,15 @@ function Invoke-CdpInputClickElement {
         Resets loading state of main page inorder to wait for the next page on click.
         .PARAMETER Timeout
         Max time in ms to wait for expected navigation before throwing an error.
+        .PARAMETER Selector
+        QuerySelectorAll syntax to find the element.
+        See Test-CdpSelector
     #>
     [CmdletBinding()]
     param (
         [Parameter(Mandatory, ValueFromPipeline)]
         [CdpPage]$CdpPage,
-        [Parameter(Mandatory)]
+        [Parameter(Mandatory, ParameterSetName = 'Scriptblock')]
         [scriptblock]$FilterScript,
         [int]$Index = 0,
         [int]$Click = 0,
@@ -81,17 +85,32 @@ function Invoke-CdpInputClickElement {
         [Parameter(ParameterSetName = 'Navigation')]
         [switch]$ExpectNavigation,
         [Parameter(ParameterSetName = 'Navigation')]
-        [int]$Timeout = 60000
+        [int]$Timeout = 60000,
+        [Parameter(Mandatory, ParameterSetName = 'QuerySelectorAll')]
+        [string]$Selector
     )
 
     process {
         $CdpServer = $CdpPage.CdpServer
         $SessionId = $CdpPage.TargetInfo['SessionId']
 
-        $CdpPage.PageInfo['Node'] = Test-CdpSelector -CdpPage $CdpPage -FilterScript $FilterScript -Index $Index -EnableDomEvents
-        if ($CdpPage.PageInfo['Node'].nodeType -ne 1 -and $CdpPage.PageInfo['Node'].nodeType -ne 3) { throw ('Node is not an element or text. {0}' -f $CdpPage.PageInfo['Node'].nodeType) }
+        $DisableDomCommand = Get-DOM.disable $SessionId
 
-        if ($Click -le 0) { return $_ }
+        $CdpPage.PageInfo['Node'] = if ($FilterScript) {
+            Test-CdpSelector -CdpPage $CdpPage -FilterScript $FilterScript -Index $Index -EnableDomEvents
+        } else {
+            Test-CdpSelector -CdpPage $CdpPage -Selector $Selector -Index $Index -EnableDomEvents
+        }
+
+        if ($CdpPage.PageInfo['Node'].nodeType -ne 1 -and $CdpPage.PageInfo['Node'].nodeType -ne 3) {
+            $CdpServer.SendCommand($DisableDomCommand)
+            throw ('Node is not an element or text. {0}' -f $CdpPage.PageInfo['Node'].nodeType)
+        }
+
+        if ($Click -le 0) {
+            $CdpServer.SendCommand($DisableDomCommand)
+            return $_
+        }
 
         $Command = Get-DOM.getBoxModel $SessionId
         $Command.params = @{
@@ -99,11 +118,13 @@ function Invoke-CdpInputClickElement {
         }
         $Response = $CdpServer.SendCommand($Command, [WaitForResponse]::Message)
 
-        if ($Response.error) { throw 'Could not get box model. {0}' -f "$($Response.error)" }
+        if ($Response.error) {
+            $CdpServer.SendCommand($DisableDomCommand)
+            throw 'Could not get box model. {0}' -f "$($Response.error)"
+        }
 
         # Disable dom events now that we don't need nodes anymore.
-        $Command = Get-DOM.disable $CdpPage.TargetInfo['SessionId']
-        $CdpServer.SendCommand($Command)
+        $CdpServer.SendCommand($DisableDomCommand)
 
         $CdpPage.PageInfo['BoxModel'] = $Response.result.model
 
