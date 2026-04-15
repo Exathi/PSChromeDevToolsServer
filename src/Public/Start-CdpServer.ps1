@@ -48,7 +48,6 @@ function Start-CdpServer {
         [ValidateScript({ $_ -ge 0 })]
         [int]$AdditionalThreads = ([int]$env:NUMBER_OF_PROCESSORS * 2),
         [hashtable]$Callbacks,
-        [switch]$DisableDefaultEvents,
         [object]$StreamOutput
     )
 
@@ -80,9 +79,7 @@ function Start-CdpServer {
     $CdpServer.StartMessageProcessor()
     $CdpServer.StartMessageWriter()
 
-    if (!$DisableDefaultEvents) {
-        $CdpServer.EnableDefaultEvents()
-    }
+    $CdpServer.EnableDefaultEvents()
 
     # Should only be used at startup since there is only one page
     do {
