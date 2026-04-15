@@ -192,6 +192,8 @@ class CdpServer {
     }
 
     [object]SendCommand([hashtable]$Command, [WaitForResponse]$WaitForResponse) {
+        if (!$this.SharedState.IO.PipeWriter.IsConnected) { throw 'Server is disconnected.' }
+
         # This should be the only place where $this.SharedState.CommandId is incremented.
         $CommandId = $this.SharedState.AddOrUpdate('CommandId', 1, { param($Key, $OldValue) $OldValue + 1 })
 
