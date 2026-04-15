@@ -72,10 +72,10 @@ $CdpServer.StartMessageProcessor()
 Invoke-CdpRuntimeAddBinding -CdpPage $CdpPage -Name 'PowershellServer'
 $null = Invoke-CdpRuntimeEvaluate -CdpPage $CdpPage -Expression 'enableAllButtons()'
 
-$CdpServer.ShowMessageHistory() | Format-Table -AutoSize
+# $CdpServer.ShowMessageHistory() | Format-Table -AutoSize
 
-$CdpServer.Threads.MessageReader.Streams
-$CdpServer.Threads.MessageProcessor.Streams
-$CdpServer.Threads.MessageWriter.Streams
+# $CdpServer.Threads.MessageReader.Streams
+# $CdpServer.Threads.MessageProcessor.Streams
+# $CdpServer.Threads.MessageWriter.Streams
 
 # Stop-CdpServer -CdpPage $CdpPage

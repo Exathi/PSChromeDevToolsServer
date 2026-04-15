@@ -10,3 +10,5 @@ $CdpPage = Start-CdpServer -StartPage $UriBuilder.Uri.AbsoluteUri -UserDataDir $
 $Files = 'D:\a.txt'
 Send-CdpDomUploadFile -CdpPage $CdpPage -Files $Files -FilterScript { $_.Attributes.Name -eq 'id' -and $_.Attributes.Value -eq 'file-upload' }
 Invoke-CdpInputClickElement -CdpPage $CdpPage -FilterScript { $_.Attributes.Name -eq 'id' -and $_.Attributes.Value -eq 'file-submit' } -Click 1
+
+# Stop-CdpServer -CdpPage $CdpPage
