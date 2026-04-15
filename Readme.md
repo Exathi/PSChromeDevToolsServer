@@ -47,6 +47,7 @@ $CdpPage.PageInfo['EvaluateResult'].value
 | Invoke-CdpCommand | Helper function to invoke any cdp command not yet implemented. |
 | Invoke-CdpInputClickElement | Find element with a selector and click element via DOM. |
 | Invoke-CdpInputSendKeys | Sends keys to browser. |
+| Invoke-CdpPageCaptureScreenshot | Takes a screenshot of the current page. |
 | Invoke-CdpPageNavigate | Navigate page and waits for the page to load and the unique javascript context to update for the new page. |
 | Invoke-CdpPagePrintToPdf | Prints page to pdf. |
 | Invoke-CdpRuntimeAddBinding | Add binding object to enable browser communication to run provided callbacks in `[CdpEventHandler]`. |
